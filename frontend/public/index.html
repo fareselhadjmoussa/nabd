@@ -1,0 +1,1553 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نبض شات | Nabd Chat</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Tajawal', sans-serif;
+            background: #1a1d26;
+            color: #fff;
+            min-height: 100vh;
+        }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+        /* Auth Pages */
+        .auth-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .auth-box {
+            background: #1e293b;
+            border-radius: 20px;
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        .auth-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #0ea5e9, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .auth-subtitle {
+            color: #94a3b8;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .form-group { margin-bottom: 20px; }
+        .form-label {
+            display: block;
+            color: #94a3b8;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        .form-input {
+            width: 100%;
+            background: #0f1015;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 12px 16px;
+            color: #fff;
+            font-size: 16px;
+            font-family: inherit;
+            transition: border-color 0.2s;
+        }
+        .form-input:focus {
+            outline: none;
+            border-color: #0ea5e9;
+        }
+        .btn {
+            width: 100%;
+            background: linear-gradient(135deg, #0ea5e9, #0284c7);
+            color: #fff;
+            font-weight: 600;
+            padding: 14px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-family: inherit;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
+        }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .auth-footer {
+            text-align: center;
+            margin-top: 20px;
+            color: #94a3b8;
+        }
+        .auth-link {
+            color: #0ea5e9;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .auth-link:hover { color: #38bdf8; }
+
+        /* Chat Layout */
+        .chat-layout {
+            display: flex;
+            height: 100vh;
+        }
+        .sidebar {
+            width: 320px;
+            background: #1e293b;
+            border-left: 1px solid #334155;
+            display: flex;
+            flex-direction: column;
+        }
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid #334155;
+        }
+        .sidebar-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+        .search-input {
+            width: 100%;
+            background: #0f1015;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 10px 16px;
+            color: #fff;
+            font-size: 14px;
+            font-family: inherit;
+        }
+        .conversations-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+        .conversation-item {
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            border-bottom: 1px solid #1f2937;
+            transition: background 0.2s;
+        }
+        .conversation-item:hover, .conversation-item.active {
+            background: #0f1015;
+        }
+        .avatar {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #0ea5e9, #0284c7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1.25rem;
+            position: relative;
+        }
+        .avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+        .avatar .online-dot {
+            position: absolute;
+            bottom: 2px;
+            left: 2px;
+            width: 12px;
+            height: 12px;
+            background: #22c55e;
+            border-radius: 50%;
+            border: 2px solid #1e293b;
+        }
+        .conversation-info { flex: 1; min-width: 0; }
+        .conversation-name {
+            font-weight: 500;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .conversation-last-message {
+            font-size: 13px;
+            color: #94a3b8;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .conversation-meta {
+            text-align: left;
+            font-size: 12px;
+            color: #64748b;
+        }
+        .unread-badge {
+            background: #0ea5e9;
+            color: #fff;
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            margin-top: 4px;
+            display: inline-block;
+        }
+
+        /* Chat Area */
+        .chat-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #1a1d26;
+        }
+        .chat-header {
+            padding: 16px 24px;
+            background: #1e293b;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .chat-header-info h3 { font-weight: 500; }
+        .chat-header-status { font-size: 12px; color: #64748b; }
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .message {
+            display: flex;
+            align-items: flex-end;
+            gap: 8px;
+            max-width: 70%;
+            animation: fadeIn 0.2s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; } }
+        .message.sent { align-self: flex-end; flex-direction: row-reverse; }
+        .message.received { align-self: flex-start; }
+        .message-bubble {
+            padding: 10px 14px;
+            border-radius: 18px 18px 0 18px;
+            background: #0f1015;
+        }
+        .message.sent .message-bubble {
+            background: #0ea5e9;
+            border-radius: 18px 18px 18px 0;
+        }
+        .message-content { color: #fff; word-break: break-word; }
+        .message-meta {
+            font-size: 10px;
+            color: #64748b;
+            margin-top: 4px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .message.sent .message-meta { justify-content: flex-end; }
+        .message-avatar { width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0; }
+
+        /* Date Separator */
+        .date-separator {
+            text-align: center;
+            margin: 16px 0;
+        }
+        .date-separator span {
+            background: #1e293b;
+            color: #64748b;
+            font-size: 12px;
+            padding: 4px 12px;
+            border-radius: 12px;
+        }
+
+        /* Typing Indicator */
+        .typing-indicator {
+            display: flex;
+            gap: 4px;
+            padding: 12px 16px;
+        }
+        .typing-indicator span {
+            width: 8px;
+            height: 8px;
+            background: #64748b;
+            border-radius: 50%;
+            animation: bounce 1.4s ease-in-out infinite;
+        }
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+        }
+
+        /* Chat Input */
+        .chat-input-area {
+            padding: 16px 24px;
+            background: #1e293b;
+            border-top: 1px solid #334155;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .chat-input {
+            flex: 1;
+            background: #0f1015;
+            border: 1px solid #334155;
+            border-radius: 24px;
+            padding: 12px 20px;
+            color: #fff;
+            font-size: 15px;
+            font-family: inherit;
+        }
+        .chat-input:focus { outline: none; border-color: #0ea5e9; }
+        .send-btn {
+            width: 44px;
+            height: 44px;
+            background: #0ea5e9;
+            border: none;
+            border-radius: 50%;
+            color: #fff;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+        .send-btn:hover { background: #0284c7; }
+        .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Welcome Screen */
+        .welcome-screen {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 40px;
+        }
+        .welcome-icon {
+            width: 100px;
+            height: 100px;
+            background: linear-gradient(135deg, #0ea5e9, #0284c7);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 24px;
+        }
+        .welcome-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 8px; }
+        .welcome-subtitle { color: #94a3b8; }
+
+        /* Loading */
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #334155;
+            border-top-color: #0ea5e9;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* User Profile Button */
+        .user-info {
+            padding: 16px 20px;
+            border-top: 1px solid #334155;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .user-name { font-weight: 500; }
+        .user-status { font-size: 12px; color: #22c55e; }
+        .logout-btn {
+            margin-left: auto;
+            padding: 8px;
+            background: none;
+            border: none;
+            color: #64748b;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: color 0.2s, background 0.2s;
+        }
+        .logout-btn:hover { color: #ef4444; background: #0f1015; }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        .modal {
+            background: #1e293b;
+            border-radius: 16px;
+            width: 100%;
+            max-width: 400px;
+            margin: 20px;
+        }
+        .modal-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #334155;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-header h2 { font-size: 1.125rem; }
+        .modal-close {
+            background: none;
+            border: none;
+            color: #64748b;
+            cursor: pointer;
+            padding: 4px;
+        }
+        .modal-close:hover { color: #fff; }
+        .modal-body { padding: 20px; }
+
+        /* New Chat */
+        .user-item {
+            padding: 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            border-radius: 12px;
+            transition: background 0.2s;
+        }
+        .user-item:hover { background: #0f1015; }
+        .user-item.selected { background: #0f1015; }
+
+        /* Toast */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+        }
+        .toast {
+            background: #1e293b;
+            color: #fff;
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            animation: slideIn 0.3s ease;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .toast.error { border-right: 4px solid #ef4444; }
+        .toast.success { border-right: 4px solid #22c55e; }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(-20px); } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // API Configuration
+        const API_URL = 'http://localhost:5000/api';
+
+        // Toast Component
+        const Toast = ({ message, type }) => (
+            <div className={`toast ${type}`}>{message}</div>
+        );
+
+        // Login Component
+        const Login = ({ onLogin, onSwitch }) => {
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [loading, setLoading] = useState(false);
+            const [showPassword, setShowPassword] = useState(false);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setLoading(true);
+                try {
+                    const res = await fetch(`${API_URL}/auth/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, password })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        localStorage.setItem('token', data.data.accessToken);
+                        localStorage.setItem('user', JSON.stringify(data.data.user));
+                        onLogin(data.data.user, data.data.accessToken);
+                    } else {
+                        alert(data.message);
+                    }
+                } catch (err) {
+                    alert('خطأ في الاتصال بالخادم');
+                }
+                setLoading(false);
+            };
+
+            return (
+                <div className="auth-container">
+                    <div className="auth-box">
+                        <h1 className="auth-title">نبض شات</h1>
+                        <p className="auth-subtitle">مرحباً بك مجدداً</p>
+                        <form onSubmit={handleSubmit}>
+                            <div className="form-group">
+                                <label className="form-label">البريد الإلكتروني</label>
+                                <input
+                                    type="email"
+                                    className="form-input"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    placeholder="example@email.com"
+                                    required
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">كلمة المرور</label>
+                                <div style={{ position: 'relative' }}>
+                                    <input
+                                        type={showPassword ? 'text' : 'password'}
+                                        className="form-input"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        placeholder="••••••••"
+                                        required
+                                        style={{ paddingLeft: 44 }}
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        style={{
+                                            position: 'absolute',
+                                            left: 12,
+                                            top: '50%',
+                                            transform: 'translateY(-50%)',
+                                            background: 'none',
+                                            border: 'none',
+                                            color: '#94a3b8',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        {showPassword ? '🙈' : '👁️'}
+                                    </button>
+                                </div>
+                            </div>
+                            <button type="submit" className="btn" disabled={loading}>
+                                {loading ? 'جاري تسجيل الدخول...' : 'تسجيل الدخول'}
+                            </button>
+                        </form>
+                        <p className="auth-footer">
+                            ليس لديك حساب؟{' '}
+                            <span className="auth-link" onClick={onSwitch} style={{ cursor: 'pointer' }}>
+                                إنشاء حساب جديد
+                            </span>
+                        </p>
+                    </div>
+                </div>
+            );
+        };
+
+        // Register Component
+        const Register = ({ onLogin, onSwitch }) => {
+            const [username, setUsername] = useState('');
+            const [email, setEmail] = useState('');
+            const [password, setPassword] = useState('');
+            const [confirmPassword, setConfirmPassword] = useState('');
+            const [loading, setLoading] = useState(false);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (password !== confirmPassword) {
+                    alert('كلمات المرور غير متطابقة');
+                    return;
+                }
+                setLoading(true);
+                try {
+                    const res = await fetch(`${API_URL}/auth/register`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username, email, password })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        localStorage.setItem('token', data.data.accessToken);
+                        localStorage.setItem('user', JSON.stringify(data.data.user));
+                        onLogin(data.data.user, data.data.accessToken);
+                    } else {
+                        alert(data.message);
+                    }
+                } catch (err) {
+                    alert('خطأ في الاتصال بالخادم');
+                }
+                setLoading(false);
+            };
+
+            return (
+                <div className="auth-container">
+                    <div className="auth-box">
+                        <h1 className="auth-title">نبض شات</h1>
+                        <p className="auth-subtitle">أنشئ حسابك للبدء</p>
+                        <form onSubmit={handleSubmit}>
+                            <div className="form-group">
+                                <label className="form-label">اسم المستخدم</label>
+                                <input
+                                    type="text"
+                                    className="form-input"
+                                    value={username}
+                                    onChange={(e) => setUsername(e.target.value)}
+                                    placeholder="اسم المستخدم"
+                                    required
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">البريد الإلكتروني</label>
+                                <input
+                                    type="email"
+                                    className="form-input"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    placeholder="example@email.com"
+                                    required
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">كلمة المرور</label>
+                                <input
+                                    type="password"
+                                    className="form-input"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    placeholder="6 أحرف على الأقل"
+                                    required
+                                />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">تأكيد كلمة المرور</label>
+                                <input
+                                    type="password"
+                                    className="form-input"
+                                    value={confirmPassword}
+                                    onChange={(e) => setConfirmPassword(e.target.value)}
+                                    placeholder="أعد إدخال كلمة المرور"
+                                    required
+                                />
+                            </div>
+                            <button type="submit" className="btn" disabled={loading}>
+                                {loading ? 'جاري إنشاء الحساب...' : 'إنشاء حساب'}
+                            </button>
+                        </form>
+                        <p className="auth-footer">
+                            لديك حساب بالفعل؟{' '}
+                            <span className="auth-link" onClick={onSwitch} style={{ cursor: 'pointer' }}>
+                                تسجيل الدخول
+                            </span>
+                        </p>
+                    </div>
+                </div>
+            );
+        };
+
+        // Chat Component
+        const Chat = ({ user, token, onLogout }) => {
+            const [conversations, setConversations] = useState([]);
+            const [currentConversation, setCurrentConversation] = useState(null);
+            const [messages, setMessages] = useState([]);
+            const [messageText, setMessageText] = useState('');
+            const [typingUsers, setTypingUsers] = useState({});
+            const [showNewChat, setShowNewChat] = useState(false);
+            const [searchQuery, setSearchQuery] = useState('');
+            const [searchResults, setSearchResults] = useState([]);
+            const [loading, setLoading] = useState(false);
+            const messagesEndRef = useRef(null);
+            const socketRef = useRef(null);
+
+            useEffect(() => {
+                fetchConversations();
+                connectSocket();
+                return () => {
+                    if (socketRef.current) socketRef.current.disconnect();
+                };
+            }, []);
+
+            useEffect(() => {
+                if (currentConversation) {
+                    fetchMessages(currentConversation._id);
+                    socketRef.current?.emit('joinConversation', { conversationId: currentConversation._id });
+                }
+            }, [currentConversation]);
+
+            useEffect(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }, [messages]);
+
+            const connectSocket = () => {
+                if (!token) return;
+
+                const socket = io('http://localhost:5000', {
+                    auth: { token },
+                    transports: ['websocket', 'polling']
+                });
+
+                socket.on('connect', () => console.log('Socket connected'));
+                socket.on('newMessage', ({ message }) => {
+                    if (currentConversation?._id === message.conversationId) {
+                        setMessages(prev => [...prev, message]);
+                    }
+                    fetchConversations();
+                });
+                socket.on('userTyping', ({ conversationId, userId, username }) => {
+                    if (currentConversation?._id === conversationId) {
+                        setTypingUsers(prev => ({ ...prev, [conversationId]: { userId, username } }));
+                    }
+                });
+                socket.on('userStopTyping', ({ conversationId, userId }) => {
+                    setTypingUsers(prev => {
+                        const newState = { ...prev };
+                        if (newState[conversationId]?.userId === userId) {
+                            delete newState[conversationId];
+                        }
+                        return newState;
+                    });
+                });
+
+                socketRef.current = socket;
+            };
+
+            const fetchConversations = async () => {
+                try {
+                    const res = await fetch(`${API_URL}/conversations`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    const data = await res.json();
+                    if (data.success) setConversations(data.data.conversations);
+                } catch (err) { console.error(err); }
+            };
+
+            const fetchMessages = async (conversationId) => {
+                try {
+                    const res = await fetch(`${API_URL}/messages/${conversationId}`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    const data = await res.json();
+                    if (data.success) setMessages(data.data.messages);
+                } catch (err) { console.error(err); }
+            };
+
+            const handleSendMessage = async (e) => {
+                e.preventDefault();
+                if (!messageText.trim() || !currentConversation) return;
+
+                const text = messageText.trim();
+                setMessageText('');
+
+                socketRef.current?.emit('sendMessage', {
+                    conversationId: currentConversation._id,
+                    content: text,
+                    type: 'text'
+                });
+            };
+
+            const handleTyping = () => {
+                if (currentConversation) {
+                    socketRef.current?.emit('typingStart', { conversationId: currentConversation._id });
+                    setTimeout(() => {
+                        socketRef.current?.emit('typingStop', { conversationId: currentConversation._id });
+                    }, 2000);
+                }
+            };
+
+            const searchUsers = async (query) => {
+                if (query.length < 2) { setSearchResults([]); return; }
+                try {
+                    const res = await fetch(`${API_URL}/users/search?q=${query}`, {
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    const data = await res.json();
+                    setSearchResults(data.data?.users || []);
+                } catch (err) { console.error(err); }
+            };
+
+            const startConversation = async (participant) => {
+                try {
+                    const res = await fetch(`${API_URL}/conversations`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Authorization: `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ participantId: participant._id, type: 'direct' })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        setCurrentConversation(data.data.conversation);
+                        setShowNewChat(false);
+                        fetchConversations();
+                    }
+                } catch (err) { console.error(err); }
+            };
+
+            const formatTime = (date) => {
+                const d = new Date(date);
+                return d.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+            };
+
+            const typingUser = typingUsers[currentConversation?._id];
+
+            return (
+                <div className="chat-layout">
+                    <div className="sidebar">
+                        <div className="sidebar-header">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                                <h2 className="sidebar-title">نبض شات</h2>
+                                <button
+                                    onClick={() => setShowNewChat(true)}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        color: '#94a3b8',
+                                        cursor: 'pointer',
+                                        padding: 8
+                                    }}
+                                >
+                                    ✨
+                                </button>
+                            </div>
+                            <input
+                                type="text"
+                                className="search-input"
+                                placeholder="البحث في المحادثات..."
+                            />
+                        </div>
+
+                        <div className="conversations-list">
+                            {conversations.length === 0 ? (
+                                <div style={{ padding: 20, textAlign: 'center', color: '#64748b' }}>
+                                    <p>لا توجد محادثات</p>
+                                    <button
+                                        onClick={() => setShowNewChat(true)}
+                                        style={{ color: '#0ea5e9', background: 'none', border: 'none', cursor: 'pointer', marginTop: 8 }}
+                                    >
+                                        ابدأ محادثة جديدة
+                                    </button>
+                                </div>
+                            ) : (
+                                conversations.map(conv => (
+                                    <div
+                                        key={conv._id}
+                                        className={`conversation-item ${currentConversation?._id === conv._id ? 'active' : ''}`}
+                                        onClick={() => setCurrentConversation(conv)}
+                                    >
+                                        <div className="avatar">
+                                            {conv.avatar ? (
+                                                <img src={conv.avatar} alt={conv.name} />
+                                            ) : (
+                                                conv.name?.charAt(0) || '?'
+                                            )}
+                                            <div className="online-dot"></div>
+                                        </div>
+                                        <div className="conversation-info">
+                                            <div className="conversation-name">{conv.name}</div>
+                                            <div className="conversation-last-message">
+                                                {conv.lastMessage?.type === 'image' ? '📷 صورة' :
+                                                 conv.lastMessage?.type === 'video' ? '🎬 فيديو' :
+                                                 conv.lastMessageText || 'لا توجد رسائل'}
+                                            </div>
+                                        </div>
+                                        <div className="conversation-meta">
+                                            <div>{formatTime(conv.updatedAt)}</div>
+                                            {conv.unreadCount > 0 && (
+                                                <span className="unread-badge">{conv.unreadCount}</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+
+                        <div className="user-info">
+                            <div className="avatar" style={{ width: 40, height: 40, fontSize: '1rem' }}>
+                                {user?.username?.charAt(0) || '?'}
+                            </div>
+                            <div>
+                                <div className="user-name">{user?.username}</div>
+                                <div className="user-status">متصل</div>
+                            </div>
+                            <button className="logout-btn" onClick={onLogout}>
+                                🚪
+                            </button>
+                        </div>
+                    </div>
+
+                    {currentConversation ? (
+                        <div className="chat-area">
+                            <div className="chat-header">
+                                <div className="avatar">
+                                    {currentConversation.name?.charAt(0) || '?'}
+                                </div>
+                                <div className="chat-header-info">
+                                    <h3>{currentConversation.name}</h3>
+                                    <div className="chat-header-status">
+                                        {typingUser ? `${typingUser.username} يكتب...` : 'متصل'}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="chat-messages">
+                                {messages.map((msg, idx) => {
+                                    const isSent = msg.sender?._id === user?._id;
+                                    const nextMsg = messages[idx + 1];
+                                    const showAvatar = !nextMsg || nextMsg.sender?._id !== msg.sender?._id;
+                                    return (
+                                        <div key={msg._id} className={`message ${isSent ? 'sent' : 'received'}`}>
+                                            {showAvatar && !isSent && (
+                                                <div className="message-avatar avatar" style={{ width: 28, height: 28, fontSize: '0.7rem' }}>
+                                                    {msg.sender?.username?.charAt(0) || '?'}
+                                                </div>
+                                            )}
+                                            <div className="message-bubble">
+                                                {msg.type === 'image' ? (
+                                                    <img src={msg.mediaUrl} alt="صورة" style={{ maxWidth: 250, borderRadius: 8 }} />
+                                                ) : msg.type === 'video' ? (
+                                                    <video src={msg.mediaUrl} controls style={{ maxWidth: 250 }} />
+                                                ) : msg.type === 'audio' ? (
+                                                    <audio src={msg.mediaUrl} controls />
+                                                ) : (
+                                                    <div className="message-content">{msg.content}</div>
+                                                )}
+                                                <div className="message-meta">
+                                                    <span>{formatTime(msg.createdAt)}</span>
+                                                    {isSent && <span>{msg.readBy?.length > 1 ? '✓✓' : '✓'}</span>}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                {typingUser && typingUser.userId !== user?._id && (
+                                    <div className="typing-indicator">
+                                        <span></span><span></span><span></span>
+                                    </div>
+                                )}
+                                <div ref={messagesEndRef} />
+                            </div>
+
+                            <form className="chat-input-area" onSubmit={handleSendMessage}>
+                                <input
+                                    type="text"
+                                    className="chat-input"
+                                    value={messageText}
+                                    onChange={(e) => { setMessageText(e.target.value); handleTyping(); }}
+                                    placeholder="اكتب رسالة..."
+                                />
+                                <button type="submit" className="send-btn" disabled={!messageText.trim()}>
+                                    ➤
+                                </button>
+                            </form>
+                        </div>
+                    ) : (
+                        <div className="welcome-screen">
+                            <div className="welcome-icon">
+                                <span style={{ fontSize: 40 }}>💬</span>
+                            </div>
+                            <h2 className="welcome-title">مرحباً {user?.username}</h2>
+                            <p className="welcome-subtitle">اختر محادثة للبدء أو ابدأ محادثة جديدة</p>
+                        </div>
+                    )}
+
+                    {showNewChat && (
+                        <div className="modal-overlay" onClick={() => setShowNewChat(false)}>
+                            <div className="modal" onClick={e => e.stopPropagation()}>
+                                <div className="modal-header">
+                                    <h2>محادثة جديدة</h2>
+                                    <button className="modal-close" onClick={() => setShowNewChat(false)}>✕</button>
+                                </div>
+                                <div className="modal-body">
+                                    <input
+                                        type="text"
+                                        className="form-input"
+                                        placeholder="ابحث عن مستخدم..."
+                                        value={searchQuery}
+                                        onChange={(e) => {
+                                            setSearchQuery(e.target.value);
+                                            searchUsers(e.target.value);
+                                        }}
+                                        style={{ marginBottom: 16 }}
+                                    />
+                                    <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                                        {searchResults.map(u => (
+                                            <div key={u._id} className="user-item" onClick={() => startConversation(u)}>
+                                                <div className="avatar" style={{ width: 40, height: 40, fontSize: '0.9rem' }}>
+                                                    {u.avatar ? <img src={u.avatar} alt={u.username} /> : u.username?.charAt(0)}
+                                                </div>
+                                                <div>
+                                                    <div className="conversation-name">{u.username}</div>
+                                                    <div style={{ fontSize: 12, color: '#64748b' }}>
+                                                        {u.status === 'online' ? 'متصل' : 'غير متصل'}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // Main App
+        const App = () => {
+            const [authPage, setAuthPage] = useState('login');
+            const [user, setUser] = useState(null);
+            const [token, setToken] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                const savedUser = localStorage.getItem('user');
+                const savedToken = localStorage.getItem('token');
+                if (savedUser && savedToken) {
+                    setUser(JSON.parse(savedUser));
+                    setToken(savedToken);
+                }
+                setLoading(false);
+            }, []);
+
+            const handleLogin = (userData, tokenData) => {
+                setUser(userData);
+                setToken(tokenData);
+            };
+
+            const handleLogout = () => {
+                localStorage.removeItem('user');
+                localStorage.removeItem('token');
+                setUser(null);
+                setToken(null);
+                setAuthPage('login');
+            };
+
+            if (loading) {
+                return (
+                    <div className="loading">
+                        <div className="spinner"></div>
+                    </div>
+                );
+            }
+
+            if (!user || !token) {
+                if (authPage === 'login') {
+                    return (
+                        <Login
+                            onLogin={handleLogin}
+                            onSwitch={() => setAuthPage('register')}
+                        />
+                    );
+                }
+                return (
+                    <Register
+                        onLogin={handleLogin}
+                        onSwitch={() => setAuthPage('login')}
+                    />
+                );
+            }
+
+            return <Chat user={user} token={token} onLogout={handleLogout} />;
+        };
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+
+<script>
+/**
+ * Iframe 元素高亮注入脚本
+ * 需要在目标网站中引入此脚本来支持跨域 iframe 高亮功能
+ *
+ * 使用方法：
+ * 1. 将此脚本添加到目标网站的 HTML 中
+ * 2. 或通过浏览器扩展、用户脚本等方式注入
+ */
+
+(function () {
+  "use strict";
+
+  // 检查是否在 iframe 中
+  if (window.self === window.top) {
+    return; // 不在 iframe 中，不执行
+  }
+
+  // 检查是否已经初始化过
+  if (window.__iframeHighlightInitialized) {
+    return;
+  }
+  window.__iframeHighlightInitialized = true;
+  console.log("Iframe 高亮脚本已加载");
+
+  // 创建高亮覆盖层
+  var overlay = document.createElement("div");
+  overlay.id = "iframe-highlight-overlay";
+  overlay.style.cssText = "\n    position: fixed;\n    top: 0;\n    left: 0;\n    width: 100vw;\n    height: 100vh;\n    pointer-events: none;\n    z-index: 999999;\n    overflow: hidden;\n  ";
+
+  // 创建悬停高亮框（虚线边框）
+  var highlightBox = document.createElement("div");
+  highlightBox.id = "iframe-highlight-box";
+  highlightBox.style.cssText = "\n    position: absolute;\n    border: 2px dashed #007AFF;\n    background: rgba(0, 122, 255, 0.08);\n    pointer-events: none;\n    display: none;\n    transition: all 0.1s ease;\n    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.8);\n    border-radius: 2px;\n  ";
+
+  // 创建选中节点的常驻高亮框（实线边框）
+  var selectedBox = document.createElement("div");
+  selectedBox.id = "iframe-selected-box";
+  selectedBox.style.cssText = "\n    position: absolute;\n    border: 2px solid #007AFF;\n    pointer-events: none;\n    display: none;\n    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9), 0 0 8px rgba(255, 107, 53, 0.4);\n    border-radius: 2px;\n    z-index: 1000000;\n  ";
+
+  // 创建悬停标签显示
+  var tagLabel = document.createElement("div");
+  tagLabel.id = "iframe-tag-label";
+  tagLabel.style.cssText = "\n    position: absolute;\n    background: #007AFF;\n    color: white;\n    padding: 2px 6px;\n    font-size: 11px;\n    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;\n    border-radius: 2px;\n    pointer-events: none;\n    display: none;\n    white-space: nowrap;\n    z-index: 1000001;\n    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);\n    font-weight: 500;\n  ";
+
+  // 创建选中节点标签
+  var selectedLabel = document.createElement("div");
+  selectedLabel.id = "iframe-selected-label";
+  selectedLabel.style.cssText = "\n    position: absolute;\n    background: #007AFF;\n    color: white;\n    padding: 3px 8px;\n    font-size: 11px;\n    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;\n    border-radius: 3px;\n    pointer-events: none;\n    display: none;\n    white-space: nowrap;\n    z-index: 1000002;\n    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);\n    font-weight: 600;\n  ";
+  overlay.appendChild(highlightBox);
+  overlay.appendChild(selectedBox);
+  overlay.appendChild(tagLabel);
+  overlay.appendChild(selectedLabel);
+  document.body.appendChild(overlay);
+
+  // 存储当前选中的元素
+  var selectedElement = null;
+  var highlightEnabled = false;
+
+  // 更新选中元素的高亮显示
+  function updateSelectedHighlight(element) {
+    console.log("updateSelectedHighlight called with:", element);
+    if (!element) {
+      selectedBox.style.display = "none";
+      selectedLabel.style.display = "none";
+      selectedElement = null;
+      console.log("Cleared selected highlight");
+      return;
+    }
+    selectedElement = element;
+    var rect = element.getBoundingClientRect();
+    console.log("Selected element rect:", rect);
+
+    // 更新选中高亮框位置
+    selectedBox.style.display = "block";
+    selectedBox.style.left = "".concat(rect.left - 2, "px");
+    selectedBox.style.top = "".concat(rect.top - 2, "px");
+    selectedBox.style.width = "".concat(rect.width + 4, "px");
+    selectedBox.style.height = "".concat(rect.height + 4, "px");
+
+    // 更新选中标签位置和内容
+    selectedLabel.style.display = "block";
+    selectedLabel.textContent = "\u2713 <".concat(element.tagName.toLowerCase(), ">");
+
+    // 计算标签位置，确保不超出视窗
+    var labelTop = rect.top - 28;
+    var labelLeft = rect.left;
+
+    // 如果标签会超出顶部，显示在元素下方
+    if (labelTop < 5) {
+      labelTop = rect.bottom + 5;
+    }
+
+    // 如果标签会超出右侧，向左调整
+    var labelWidth = selectedLabel.offsetWidth || 100; // 预估宽度
+    if (labelLeft + labelWidth > window.innerWidth - 10) {
+      labelLeft = window.innerWidth - labelWidth - 10;
+    }
+    selectedLabel.style.left = "".concat(Math.max(5, labelLeft), "px");
+    selectedLabel.style.top = "".concat(labelTop, "px");
+    console.log("Selected highlight positioned at:", {
+      left: selectedBox.style.left,
+      top: selectedBox.style.top,
+      width: selectedBox.style.width,
+      height: selectedBox.style.height
+    });
+  }
+  function getElementSelector(element) {
+    if (!(element instanceof Element)) throw new Error('Argument must be a DOM element');
+    var segments = [];
+    var current = element;
+    while (current !== document.documentElement) {
+      var selector = '';
+      // 优先检查唯一ID
+      if (current.id && document.querySelectorAll("#".concat(current.id)).length === 1) {
+        segments.unshift("#".concat(current.id));
+        break; // ID唯一，无需继续向上
+      }
+
+      // 生成类名选择器（取第一个有效类名）
+      var classes = Array.from(current.classList).filter(function (c) {
+        return !c.startsWith('js-');
+      });
+      var className = classes.length > 0 ? ".".concat(classes[0]) : '';
+
+      // 生成位置索引（nth-child）
+      var tag = current.tagName.toLowerCase();
+      if (!className) {
+        var siblings = Array.from(current.parentNode.children);
+        var index = siblings.findIndex(function (el) {
+          return el === current;
+        }) + 1;
+        selector = "".concat(tag, ":nth-child(").concat(index, ")");
+      } else {
+        selector = className;
+      }
+      segments.unshift(selector);
+      current = current.parentElement;
+    }
+
+    // 处理根元素
+    if (current === document.documentElement) {
+      segments.unshift('html');
+    }
+    return segments.join(' > ');
+  }
+
+  // 获取元素文本内容
+  function getElementText(element) {
+    var _element$textContent;
+    if (element.tagName === "INPUT") {
+      return element.value || element.placeholder || "";
+    }
+    if (element.tagName === "TEXTAREA") {
+      return element.value || element.placeholder || "";
+    }
+    var text = ((_element$textContent = element.textContent) === null || _element$textContent === void 0 ? void 0 : _element$textContent.trim()) || "";
+    return text.length > 50 ? text.substring(0, 50) + "..." : text;
+  }
+
+  // 获取元素属性信息
+  function getElementAttributes(element) {
+    var attrs = {};
+    for (var i = 0; i < element.attributes.length; i++) {
+      var attr = element.attributes[i];
+      attrs[attr.name] = attr.value;
+    }
+    return attrs;
+  }
+
+  // 鼠标悬停事件处理
+  function handleMouseOver(e) {
+    if (!highlightEnabled) return;
+    var target = e.target;
+    if (!target || target === overlay || target === highlightBox || target === tagLabel || target === selectedBox || target === selectedLabel) {
+      return;
+    }
+
+    // 避免高亮 html 和 body 元素
+    if (target === document.documentElement || target === document.body) {
+      return;
+    }
+
+    // 如果是已选中的元素，不显示悬停高亮
+    if (target === selectedElement) {
+      highlightBox.style.display = "none";
+      tagLabel.style.display = "none";
+      return;
+    }
+    var rect = target.getBoundingClientRect();
+    var selector = getElementSelector(target);
+    var text = getElementText(target);
+    var attributes = getElementAttributes(target);
+
+    // 更新悬停高亮框位置
+    highlightBox.style.display = "block";
+    highlightBox.style.left = "".concat(rect.left - 2, "px");
+    highlightBox.style.top = "".concat(rect.top - 2, "px");
+    highlightBox.style.width = "".concat(rect.width + 4, "px");
+    highlightBox.style.height = "".concat(rect.height + 4, "px");
+
+    // 更新标签位置和内容
+    tagLabel.style.display = "block";
+    tagLabel.textContent = "<".concat(target.tagName.toLowerCase(), ">");
+
+    // 计算标签位置，确保不超出视窗
+    var labelTop = rect.top - 22;
+    var labelLeft = rect.left;
+
+    // 如果标签会超出顶部，显示在元素下方
+    if (labelTop < 0) {
+      labelTop = rect.bottom + 5;
+    }
+
+    // 如果标签会超出右侧，向左调整
+    if (labelLeft + tagLabel.offsetWidth > window.innerWidth) {
+      labelLeft = window.innerWidth - tagLabel.offsetWidth - 5;
+    }
+    tagLabel.style.left = "".concat(Math.max(0, labelLeft), "px");
+    tagLabel.style.top = "".concat(labelTop, "px");
+
+    // 发送消息到父窗口
+    var elementInfo = {
+      tagName: target.tagName.toLowerCase(),
+      rect: {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+        x: rect.x,
+        y: rect.y
+      },
+      selector: selector,
+      text: text,
+      attributes: attributes,
+      url: window.location.href,
+      path: window.location.pathname,
+      timestamp: Date.now()
+    };
+    try {
+      window.parent.postMessage({
+        type: "iframe-element-hover",
+        data: elementInfo,
+        source: "iframe-highlight-injector"
+      }, "*");
+    } catch (error) {
+      console.warn("无法发送消息到父窗口:", error);
+    }
+  }
+
+  // 鼠标离开事件处理
+  function handleMouseOut(e) {
+    if (!highlightEnabled) return;
+    var relatedTarget = e.relatedTarget;
+
+    // 如果鼠标移动到高亮相关元素上，不隐藏高亮
+    if (relatedTarget && (relatedTarget === highlightBox || relatedTarget === tagLabel || relatedTarget === overlay || relatedTarget === selectedBox || relatedTarget === selectedLabel)) {
+      return;
+    }
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    try {
+      window.parent.postMessage({
+        type: "iframe-element-hover",
+        data: null,
+        source: "iframe-highlight-injector"
+      }, "*");
+    } catch (error) {
+      console.warn("无法发送消息到父窗口:", error);
+    }
+  }
+
+  // 点击事件处理
+  function handleClick(e) {
+    var target = e.target;
+    if (!target || target === overlay || target === highlightBox || target === tagLabel || target === selectedBox || target === selectedLabel) {
+      return;
+    }
+
+    // 避免处理 html 和 body 元素
+    if (target === document.documentElement || target === document.body) {
+      return;
+    }
+
+    // 检查是否是交互元素，这些元素需要保留默认行为
+    var isInteractiveElement = ['input', 'textarea', 'select', 'button', 'a'].includes(target.tagName.toLowerCase());
+
+    // 如果高亮功能启用，对于非交互元素阻止默认行为和事件传播
+    if (highlightEnabled) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    var rect = target.getBoundingClientRect();
+    var selector = getElementSelector(target);
+    var text = getElementText(target);
+    var attributes = getElementAttributes(target);
+    console.log("Element clicked:", {
+      tagName: target.tagName,
+      selector: selector,
+      rect: rect
+    });
+
+    // 立即更新选中高亮
+    updateSelectedHighlight(target);
+
+    // 隐藏悬停高亮，因为现在是选中状态
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    var elementInfo = {
+      tagName: target.tagName.toLowerCase(),
+      rect: {
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+        x: rect.x,
+        y: rect.y
+      },
+      selector: selector,
+      text: text,
+      attributes: attributes,
+      url: window.location.href,
+      path: window.location.pathname,
+      timestamp: Date.now()
+    };
+    try {
+      window.parent.postMessage({
+        type: "iframe-element-click",
+        data: elementInfo,
+        source: "iframe-highlight-injector"
+      }, "*");
+    } catch (error) {
+      console.warn("无法发送消息到父窗口:", error);
+    }
+  }
+
+  // 监听来自父窗口的消息
+  function handleParentMessage(event) {
+    console.log("Received message from parent:", event.data);
+    if (event.data.type === "iframe-highlight-toggle") {
+      var enabled = event.data.enabled;
+      console.log("Highlight toggle:", enabled);
+      if (enabled) {
+        enableHighlight();
+      } else {
+        disableHighlight();
+      }
+    } else if (event.data.type === "enable-iframe-highlight") {
+      console.log("Enable iframe highlight");
+      enableHighlight();
+    } else if (event.data.type === "disable-iframe-highlight") {
+      console.log("Disable iframe highlight");
+      disableHighlight();
+    } else if (event.data.type === "toggle-iframe-highlight") {
+      var _enabled = event.data.enabled !== undefined ? event.data.enabled : !highlightEnabled;
+      console.log("Toggle iframe highlight to:", _enabled);
+      if (_enabled) {
+        enableHighlight();
+      } else {
+        disableHighlight();
+      }
+    } else if (event.data.type === "update-selected-element") {
+      var selector = event.data.selector;
+      console.log("Update selected element with selector:", selector);
+      if (selector) {
+        try {
+          var element = document.querySelector(selector);
+          console.log("Found element by selector:", element);
+          updateSelectedHighlight(element);
+        } catch (error) {
+          console.warn("Failed to select element:", error);
+          updateSelectedHighlight(null);
+        }
+      } else {
+        updateSelectedHighlight(null);
+      }
+    } else if (event.data.type === "clear-selected-element") {
+      console.log("Clear selected element");
+      updateSelectedHighlight(null);
+    }
+  }
+
+  // 启用高亮功能
+  function enableHighlight() {
+    console.log("Enabling highlight");
+    document.addEventListener("mouseover", handleMouseOver, true);
+    document.addEventListener("mouseout", handleMouseOut, true);
+    document.addEventListener("click", handleClick, true);
+    highlightEnabled = true;
+    overlay.style.display = "block";
+  }
+
+  // 禁用高亮功能
+  function disableHighlight() {
+    console.log("Disabling highlight");
+    highlightEnabled = false;
+    // 保持事件监听器，但通过 highlightEnabled 变量控制行为
+    // 这样可以保留选中状态的显示
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    // 不隐藏 selectedBox 和 selectedLabel，保留选中状态
+  }
+
+  // 完全禁用高亮功能（移除所有监听器）
+  function fullyDisableHighlight() {
+    console.log("Fully disabling highlight");
+    highlightEnabled = false;
+    document.removeEventListener("mouseover", handleMouseOver, true);
+    document.removeEventListener("mouseout", handleMouseOut, true);
+    document.removeEventListener("click", handleClick, true);
+    overlay.style.display = "none";
+    highlightBox.style.display = "none";
+    tagLabel.style.display = "none";
+    selectedBox.style.display = "none";
+    selectedLabel.style.display = "none";
+  }
+
+  // 添加事件监听
+  enableHighlight();
+  window.addEventListener("message", handleParentMessage);
+
+  // 暴露全局函数供外部调用
+  window.__iframeHighlightControl = {
+    enable: enableHighlight,
+    disable: disableHighlight,
+    fullyDisable: fullyDisableHighlight,
+    isEnabled: function isEnabled() {
+      return highlightEnabled;
+    },
+    getSelectedElement: function getSelectedElement() {
+      return selectedElement;
+    },
+    updateSelected: updateSelectedHighlight,
+    // 通过消息发送开关控制
+    sendToggleMessage: function sendToggleMessage(enabled) {
+      window.parent.postMessage({
+        type: 'iframe-highlight-status',
+        enabled: enabled || highlightEnabled,
+        source: 'iframe-highlight-injector'
+      }, '*');
+    }
+  };
+
+  // 通知父窗口脚本已加载
+  try {
+    window.parent.postMessage({
+      type: "iframe-highlight-ready",
+      data: {
+        url: window.location.href,
+        userAgent: navigator.userAgent,
+        timestamp: Date.now()
+      },
+      source: "iframe-highlight-injector"
+    }, "*");
+  } catch (error) {
+    console.warn("无法发送就绪消息到父窗口:", error);
+  }
+
+  // 清理函数
+  window.__iframeHighlightCleanup = function () {
+    fullyDisableHighlight();
+    window.removeEventListener("message", handleParentMessage);
+    if (overlay.parentElement) {
+      overlay.parentElement.removeChild(overlay);
+    }
+    delete window.__iframeHighlightInitialized;
+    delete window.__iframeHighlightCleanup;
+  };
+})();
+
+</script>
+</body>
+</html>
