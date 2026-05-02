@@ -19,30 +19,38 @@ const uploadRoutes = require('./routes/upload');
 const app = express();
 const server = http.createServer(app);
 
+
+// 🔥🔥🔥 حل مشكلة Render Proxy
+app.set('trust proxy', 1);
+
+
 /* =========================
-   🌐 CORS CONFIG FIXED
+   🌐 CORS CONFIG (FIXED)
 ========================= */
 
 const allowedOrigins = [
   ...(config.CORS_ORIGINS || []),
+
+  // 🔧 Local
   'http://localhost:3000',
   'http://localhost:5173',
   'http://127.0.0.1:3000',
-  'https://your-site.netlify.app',
-  'https://your-project.vercel.app'
+
+  // 🔥 موقعك الحقيقي
+  'https://nabd-chat-sigma.vercel.app'
 ];
 
-// تنظيف أي قيم فارغة
+// تنظيف
 const cleanOrigins = [...new Set(allowedOrigins.filter(Boolean))];
 
 const corsOrigin = (origin, callback) => {
-  // السماح للطلبات بدون origin (Postman / server-to-server)
   if (!origin) return callback(null, true);
 
   if (cleanOrigins.includes(origin)) {
     return callback(null, true);
   }
 
+  console.log("❌ Blocked CORS:", origin);
   return callback(new Error(`CORS blocked: ${origin}`));
 };
 
@@ -51,6 +59,7 @@ const corsOptions = {
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   credentials: true
 };
+
 
 /* =========================
    🔌 SOCKET.IO
@@ -61,6 +70,7 @@ const io = new Server(server, {
 });
 
 app.set('io', io);
+
 
 /* =========================
    🛡️ MIDDLEWARE
@@ -77,6 +87,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
+
 /* =========================
    📦 ROUTES
 ========================= */
@@ -86,6 +97,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/conversations', conversationRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/upload', uploadRoutes);
+
 
 /* =========================
    ❤️ HEALTH CHECK
@@ -106,12 +118,13 @@ app.get('/', (req, res) => {
   });
 });
 
+
 /* =========================
    ❌ ERROR HANDLER
 ========================= */
 
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
+  console.error('🔥 Error:', err);
 
   res.status(err.status || 500).json({
     success: false,
@@ -119,6 +132,7 @@ app.use((err, req, res, next) => {
     error: config.NODE_ENV === 'development' ? err.message : undefined
   });
 });
+
 
 /* =========================
    404 HANDLER
@@ -131,11 +145,13 @@ app.use((req, res) => {
   });
 });
 
+
 /* =========================
    🔌 SOCKET HANDLER
 ========================= */
 
 socketHandler(io);
+
 
 /* =========================
    🚀 START SERVER
