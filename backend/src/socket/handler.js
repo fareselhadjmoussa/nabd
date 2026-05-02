@@ -306,19 +306,37 @@ const socketHandler = (io) => {
           return socket.emit('error', { message: 'الرسالة غير موجودة' });
         }
 
-        if (!message.sender.equals(socket.userId)) {
+        const isAdmin = socket.user?.role === 'admin';
+        if (!isAdmin && !message.sender.equals(socket.userId)) {
           return socket.emit('error', { message: 'غير مصرح' });
         }
 
         message.deleted = true;
         message.deletedBy = socket.userId;
-        message.content = 'تم حذف هذه الرسالة';
+        if (isAdmin && !message.sender.equals(socket.userId)) {
+          message.adminDeleted = true;
+          message.adminDeletedBy = socket.userId;
+          message.adminDeletedAt = new Date();
+          message.content = 'تم حذف هذه الرسالة بواسطة الإدارة';
+        } else {
+          message.content = 'تم حذف هذه الرسالة';
+        }
         message.mediaUrl = '';
+        message.mediaThumbnail = '';
         await message.save();
 
-        io.to(`conversation:${message.conversationId}`).emit('messageDeleted', {
-          messageId,
+        const payload = {
+          messageId: message._id,
           conversationId: message.conversationId,
+          deletedByAdmin: Boolean(message.adminDeleted),
+          content: message.content,
+        };
+
+        io.to(`conversation:${message.conversationId}`).emit('messageDeleted', payload);
+
+        const conversation = await Conversation.findById(message.conversationId).select('participants');
+        conversation?.participants?.forEach((participantId) => {
+          io.to(`user:${participantId.toString()}`).emit('messageDeleted', payload);
         });
       } catch (error) {
         console.error('DeleteMessage error:', error);

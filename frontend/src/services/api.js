@@ -170,6 +170,7 @@ export const adminAPI = {
   deleteUser: (id) => api.delete(`/admin/users/${id}`),
   getReports: (params) => api.get('/admin/reports', { params }),
   updateReport: (id, data) => api.patch(`/admin/reports/${id}`, data),
+  deleteMessage: (id) => api.delete(`/admin/messages/${id}`),
 };
 
 // Upload API

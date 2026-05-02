@@ -62,6 +62,18 @@ const messageSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
     },
+    adminDeleted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    adminDeletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    adminDeletedAt: {
+      type: Date,
+    },
     reactions: [
       {
         user: {

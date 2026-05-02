@@ -12,6 +12,23 @@ const reasonLabels = {
   other: 'سبب آخر',
 };
 
+const statusLabels = {
+  online: 'متصل',
+  offline: 'غير متصل',
+  away: 'بعيد',
+};
+
+function formatDate(date) {
+  if (!date) return '—';
+  return new Date(date).toLocaleString('ar-DZ', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 function Admin() {
   const { user } = useAuthStore();
   const { theme, toggleTheme } = useThemeStore();
@@ -23,6 +40,7 @@ function Admin() {
   const [status, setStatus] = useState('all');
   const [reportStatus, setReportStatus] = useState('pending');
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
 
   if (user?.role !== 'admin') return <Navigate to="/chat" replace />;
 
@@ -32,12 +50,12 @@ function Admin() {
   };
 
   const loadUsers = async () => {
-    const response = await adminAPI.getUsers({ search, status, limit: 50 });
+    const response = await adminAPI.getUsers({ search, status, limit: 100 });
     setUsers(response.data.data.users || []);
   };
 
   const loadReports = async () => {
-    const response = await adminAPI.getReports({ status: reportStatus, limit: 50 });
+    const response = await adminAPI.getReports({ status: reportStatus, limit: 100 });
     setReports(response.data.data.reports || []);
   };
 
@@ -64,25 +82,62 @@ function Admin() {
     loadReports().catch(() => {});
   }, [reportStatus]);
 
-  const handleSearch = (e) => {
-    e.preventDefault();
+  const handleSearch = (event) => {
+    event.preventDefault();
     loadUsers().catch(() => toast.error('خطأ في البحث'));
   };
 
   const updateUser = async (targetUser, data) => {
+    setActionLoading(true);
     try {
       const response = await adminAPI.updateUser(targetUser._id, data);
       const updatedUser = response.data.data.user;
-      setUsers((list) => list.map((item) => item._id === updatedUser._id ? { ...item, ...updatedUser } : item));
+      setUsers((list) => list.map((item) => (item._id === updatedUser._id ? { ...item, ...updatedUser } : item)));
       await loadStats();
       toast.success(response.data.message || 'تم التحديث');
     } catch (error) {
       toast.error(error.response?.data?.message || 'تعذر تحديث المستخدم');
+    } finally {
+      setActionLoading(false);
     }
   };
 
+  const promptUpdate = async (targetUser, field) => {
+    const labels = {
+      username: 'اسم المستخدم الجديد',
+      email: 'البريد الإلكتروني الجديد',
+      avatar: 'رابط الصورة الشخصية الجديد',
+    };
+
+    const value = prompt(labels[field], targetUser[field] || '');
+    if (value === null) return;
+    await updateUser(targetUser, { [field]: value.trim() });
+  };
+
+  const promptStatus = async (targetUser) => {
+    const value = prompt('اكتب الحالة: online أو offline أو away', targetUser.status || 'offline');
+    if (value === null) return;
+    if (!['online', 'offline', 'away'].includes(value)) {
+      toast.error('الحالة غير صحيحة');
+      return;
+    }
+    await updateUser(targetUser, { status: value });
+  };
+
+  const promptBan = async (targetUser) => {
+    if (targetUser.isBanned) {
+      await updateUser(targetUser, { isBanned: false, bannedReason: '' });
+      return;
+    }
+
+    const reason = prompt('سبب الحظر', 'تم حظر الحساب من الإدارة');
+    if (reason === null) return;
+    await updateUser(targetUser, { isBanned: true, bannedReason: reason });
+  };
+
   const deleteUser = async (targetUser) => {
-    if (!confirm(`هل تريد حذف ${targetUser.username} نهائياً؟`)) return;
+    if (!confirm(`هل تريد حذف ${targetUser.username} نهائياً؟ سيتم حذف حسابه ومحادثاته المرتبطة به.`)) return;
+    setActionLoading(true);
     try {
       await adminAPI.deleteUser(targetUser._id);
       setUsers((list) => list.filter((item) => item._id !== targetUser._id));
@@ -90,10 +145,13 @@ function Admin() {
       toast.success('تم حذف المستخدم');
     } catch (error) {
       toast.error(error.response?.data?.message || 'تعذر حذف المستخدم');
+    } finally {
+      setActionLoading(false);
     }
   };
 
   const updateReport = async (report, nextStatus) => {
+    setActionLoading(true);
     try {
       const adminNote = nextStatus === 'dismissed' ? 'تم رفض البلاغ' : 'تمت مراجعة البلاغ';
       await adminAPI.updateReport(report._id, { status: nextStatus, adminNote });
@@ -102,6 +160,29 @@ function Admin() {
       toast.success('تم تحديث البلاغ');
     } catch (error) {
       toast.error(error.response?.data?.message || 'تعذر تحديث البلاغ');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const deleteReportedMessage = async (report) => {
+    if (!report.message?._id) return;
+    if (!confirm('هل تريد حذف الرسالة المبلّغ عنها؟ لن تظهر الإدارة محتوى الرسالة، سيتم حذفها فقط.')) return;
+
+    setActionLoading(true);
+    try {
+      await adminAPI.deleteMessage(report.message._id);
+      setReports((list) => list.map((item) => (
+        item._id === report._id
+          ? { ...item, message: { ...item.message, deleted: true, adminDeleted: true } }
+          : item
+      )));
+      await loadStats();
+      toast.success('تم حذف الرسالة بواسطة الإدارة');
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'تعذر حذف الرسالة');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -111,19 +192,22 @@ function Admin() {
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
             <h1 className="text-3xl font-black">لوحة تحكم نبض</h1>
-            <p className="text-gray-400 mt-1">إدارة المستخدمين والبلاغات وحماية الموقع</p>
+            <p className="text-gray-400 mt-1">إدارة المستخدمين والبلاغات بدون عرض محتوى الرسائل الخاصة</p>
           </div>
           <div className="flex gap-2">
             <button onClick={toggleTheme} className="px-4 py-2 rounded-xl bg-dark-200 hover:bg-dark-100">
               {theme === 'dark' ? '☀️ فاتح' : '🌙 داكن'}
             </button>
+            <button onClick={loadAll} className="px-4 py-2 rounded-xl bg-dark-200 hover:bg-dark-100">تحديث</button>
             <Link to="/chat" className="px-4 py-2 rounded-xl bg-primary-500 hover:bg-primary-600">رجوع للشات</Link>
           </div>
         </header>
 
-        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-8 gap-3 mb-6">
           {[
             ['المستخدمون', stats?.users || 0],
+            ['المديرون', stats?.admins || 0],
+            ['المتصلون', stats?.onlineUsers || 0],
             ['المحظورون', stats?.bannedUsers || 0],
             ['المحادثات', stats?.conversations || 0],
             ['الرسائل', stats?.messages || 0],
@@ -148,10 +232,12 @@ function Admin() {
           ) : activeTab === 'users' ? (
             <div className="p-4">
               <form onSubmit={handleSearch} className="flex flex-col md:flex-row gap-3 mb-4">
-                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث بالاسم أو البريد" className="flex-1 bg-dark-100 border border-gray-700 rounded-xl px-4 py-2 focus:outline-none" />
-                <select value={status} onChange={(e) => setStatus(e.target.value)} className="bg-dark-100 border border-gray-700 rounded-xl px-4 py-2">
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="بحث بالاسم أو البريد" className="flex-1 bg-dark-100 border border-gray-700 rounded-xl px-4 py-2 focus:outline-none" />
+                <select value={status} onChange={(event) => setStatus(event.target.value)} className="bg-dark-100 border border-gray-700 rounded-xl px-4 py-2">
                   <option value="all">الكل</option>
                   <option value="active">نشط</option>
+                  <option value="online">متصل</option>
+                  <option value="offline">غير متصل</option>
                   <option value="banned">محظور</option>
                   <option value="admin">مدير</option>
                 </select>
@@ -165,8 +251,10 @@ function Admin() {
                       <th className="p-3 text-right">المستخدم</th>
                       <th className="p-3 text-right">البريد</th>
                       <th className="p-3 text-right">الدور</th>
-                      <th className="p-3 text-right">الحالة</th>
-                      <th className="p-3 text-right">إجراءات</th>
+                      <th className="p-3 text-right">النشاط</th>
+                      <th className="p-3 text-right">آخر ظهور</th>
+                      <th className="p-3 text-right">الحظر</th>
+                      <th className="p-3 text-right min-w-[420px]">إجراءات</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -174,18 +262,27 @@ function Admin() {
                       <tr key={item._id} className="border-b border-gray-800 hover:bg-dark-100/60">
                         <td className="p-3">
                           <div className="flex items-center gap-3">
-                            {item.avatar ? <img src={item.avatar} className="w-9 h-9 rounded-full object-cover" /> : <div className="w-9 h-9 rounded-full bg-primary-500 flex items-center justify-center font-bold">{item.username?.[0]}</div>}
-                            <span>{item.username}</span>
+                            {item.avatar ? <img src={item.avatar} alt={item.username} className="w-9 h-9 rounded-full object-cover" /> : <div className="w-9 h-9 rounded-full bg-primary-500 flex items-center justify-center font-bold">{item.username?.[0]}</div>}
+                            <div>
+                              <p className="font-semibold">{item.username}</p>
+                              <p className="text-[11px] text-gray-500">انضم: {formatDate(item.createdAt)}</p>
+                            </div>
                           </div>
                         </td>
                         <td className="p-3 text-gray-300">{item.email}</td>
-                        <td className="p-3">{item.role === 'admin' ? 'مدير' : 'مستخدم'}</td>
-                        <td className="p-3">{item.isBanned ? <span className="text-red-400">محظور</span> : <span className="text-green-400">نشط</span>}</td>
+                        <td className="p-3">{item.role === 'admin' ? <span className="text-primary-300">مدير</span> : 'مستخدم'}</td>
+                        <td className="p-3">{item.status === 'online' ? <span className="text-green-400">متصل</span> : <span className="text-gray-400">{statusLabels[item.status] || item.status}</span>}</td>
+                        <td className="p-3 text-gray-400">{formatDate(item.lastSeen)}</td>
+                        <td className="p-3">{item.isBanned ? <span className="text-red-400">محظور</span> : <span className="text-green-400">غير محظور</span>}</td>
                         <td className="p-3">
                           <div className="flex flex-wrap gap-2">
-                            <button onClick={() => updateUser(item, { role: item.role === 'admin' ? 'user' : 'admin' })} className="px-3 py-1 rounded-lg bg-dark-100 hover:bg-gray-700">{item.role === 'admin' ? 'إزالة مدير' : 'جعله مدير'}</button>
-                            <button onClick={() => updateUser(item, { isBanned: !item.isBanned, bannedReason: 'تم حظر الحساب من الإدارة' })} className={`px-3 py-1 rounded-lg ${item.isBanned ? 'bg-green-600' : 'bg-orange-600'}`}>{item.isBanned ? 'إلغاء الحظر' : 'حظر'}</button>
-                            <button onClick={() => deleteUser(item)} className="px-3 py-1 rounded-lg bg-red-600 hover:bg-red-700">حذف</button>
+                            <button disabled={actionLoading} onClick={() => promptUpdate(item, 'username')} className="px-3 py-1 rounded-lg bg-dark-100 hover:bg-gray-700">تعديل الاسم</button>
+                            <button disabled={actionLoading} onClick={() => promptUpdate(item, 'email')} className="px-3 py-1 rounded-lg bg-dark-100 hover:bg-gray-700">تعديل البريد</button>
+                            <button disabled={actionLoading} onClick={() => promptUpdate(item, 'avatar')} className="px-3 py-1 rounded-lg bg-dark-100 hover:bg-gray-700">الصورة</button>
+                            <button disabled={actionLoading} onClick={() => promptStatus(item)} className="px-3 py-1 rounded-lg bg-dark-100 hover:bg-gray-700">الحالة</button>
+                            <button disabled={actionLoading} onClick={() => updateUser(item, { role: item.role === 'admin' ? 'user' : 'admin' })} className="px-3 py-1 rounded-lg bg-dark-100 hover:bg-gray-700">{item.role === 'admin' ? 'إزالة مدير' : 'جعله مدير'}</button>
+                            <button disabled={actionLoading} onClick={() => promptBan(item)} className={`px-3 py-1 rounded-lg ${item.isBanned ? 'bg-green-600' : 'bg-orange-600'}`}>{item.isBanned ? 'إلغاء الحظر' : 'حظر'}</button>
+                            <button disabled={actionLoading} onClick={() => deleteUser(item)} className="px-3 py-1 rounded-lg bg-red-600 hover:bg-red-700">حذف</button>
                           </div>
                         </td>
                       </tr>
@@ -197,7 +294,7 @@ function Admin() {
           ) : (
             <div className="p-4">
               <div className="mb-4 flex gap-3">
-                <select value={reportStatus} onChange={(e) => setReportStatus(e.target.value)} className="bg-dark-100 border border-gray-700 rounded-xl px-4 py-2">
+                <select value={reportStatus} onChange={(event) => setReportStatus(event.target.value)} className="bg-dark-100 border border-gray-700 rounded-xl px-4 py-2">
                   <option value="pending">معلقة</option>
                   <option value="reviewed">تمت المراجعة</option>
                   <option value="resolved">محلولة</option>
@@ -211,16 +308,25 @@ function Admin() {
                   <div className="text-center text-gray-400 p-8">لا توجد بلاغات</div>
                 ) : reports.map((report) => (
                   <div key={report._id} className="bg-dark-100 border border-gray-700 rounded-2xl p-4">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                      <div>
+                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+                      <div className="space-y-1">
                         <p className="font-bold">بلاغ ضد: {report.reportedUser?.username || 'مستخدم محذوف'}</p>
                         <p className="text-sm text-gray-400">من: {report.reporter?.username || 'غير معروف'} • السبب: {reasonLabels[report.reason] || report.reason}</p>
-                        {report.details && <p className="mt-2 text-gray-300">{report.details}</p>}
+                        <p className="text-xs text-gray-500">تاريخ البلاغ: {formatDate(report.createdAt)}</p>
+                        {report.details && <p className="mt-2 text-gray-300">ملاحظة المبلّغ: {report.details}</p>}
+                        {report.message?._id && (
+                          <div className="mt-3 rounded-xl border border-gray-700 p-3 text-sm bg-dark-200">
+                            <p className="text-gray-300">رسالة مبلّغ عنها: <span className="text-gray-500">{report.message._id}</span></p>
+                            <p className="text-gray-400">النوع: {report.message.type || 'غير معروف'} • الحالة: {report.message.deleted ? 'محذوفة' : 'غير محذوفة'}</p>
+                            <p className="text-xs text-gray-500 mt-1">خصوصية: لا يتم عرض محتوى الرسالة في لوحة الإدارة.</p>
+                          </div>
+                        )}
                       </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => updateReport(report, 'resolved')} className="px-3 py-2 rounded-xl bg-green-600">حل البلاغ</button>
-                        <button onClick={() => updateReport(report, 'dismissed')} className="px-3 py-2 rounded-xl bg-gray-600">رفض</button>
-                        {report.reportedUser?._id && <button onClick={() => updateUser(report.reportedUser, { isBanned: true, bannedReason: 'تم الحظر بسبب بلاغات المستخدمين' })} className="px-3 py-2 rounded-xl bg-orange-600">حظر المستخدم</button>}
+                      <div className="flex flex-wrap gap-2">
+                        <button disabled={actionLoading} onClick={() => updateReport(report, 'resolved')} className="px-3 py-2 rounded-xl bg-green-600">حل البلاغ</button>
+                        <button disabled={actionLoading} onClick={() => updateReport(report, 'dismissed')} className="px-3 py-2 rounded-xl bg-gray-600">رفض</button>
+                        {report.message?._id && !report.message.deleted && <button disabled={actionLoading} onClick={() => deleteReportedMessage(report)} className="px-3 py-2 rounded-xl bg-red-600">حذف الرسالة</button>}
+                        {report.reportedUser?._id && <button disabled={actionLoading} onClick={() => updateUser(report.reportedUser, { isBanned: true, bannedReason: 'تم الحظر بسبب بلاغات المستخدمين' })} className="px-3 py-2 rounded-xl bg-orange-600">حظر المستخدم</button>}
                       </div>
                     </div>
                   </div>

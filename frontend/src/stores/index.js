@@ -431,8 +431,12 @@ export const useChatStore = create((set, get) => ({
     });
   },
 
-  deleteMessage: (messageId) => {
-    get().updateMessage(messageId, { deleted: true, content: 'تم حذف هذه الرسالة' });
+  deleteMessage: (messageId, updates = {}) => {
+    get().updateMessage(messageId, {
+      deleted: true,
+      content: updates.content || 'تم حذف هذه الرسالة',
+      adminDeleted: Boolean(updates.adminDeleted),
+    });
   },
 
   sendMessage: async (data) => {

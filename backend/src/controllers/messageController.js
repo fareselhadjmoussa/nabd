@@ -256,7 +256,10 @@ const deleteMessage = async (req, res) => {
       });
     }
 
-    if (!message.sender.equals(userId)) {
+    const isAdmin = req.user?.role === 'admin';
+
+    // Sender can delete their own message. Admin can delete any message without browsing private messages.
+    if (!isAdmin && !message.sender.equals(userId)) {
       return res.status(403).json({
         success: false,
         message: 'غير مصرح بحذف هذه الرسالة',
@@ -265,21 +268,37 @@ const deleteMessage = async (req, res) => {
 
     message.deleted = true;
     message.deletedBy = userId;
-    message.content = 'تم حذف هذه الرسالة';
+    if (isAdmin && !message.sender.equals(userId)) {
+      message.adminDeleted = true;
+      message.adminDeletedBy = userId;
+      message.adminDeletedAt = new Date();
+      message.content = 'تم حذف هذه الرسالة بواسطة الإدارة';
+    } else {
+      message.content = 'تم حذف هذه الرسالة';
+    }
     message.mediaUrl = '';
+    message.mediaThumbnail = '';
     await message.save();
 
     const io = req.app.get('io');
     if (io) {
-      io.to(`conversation:${message.conversationId}`).emit('messageDeleted', {
+      const payload = {
         messageId: message._id,
         conversationId: message.conversationId,
+        deletedByAdmin: Boolean(message.adminDeleted),
+        content: message.content,
+      };
+      io.to(`conversation:${message.conversationId}`).emit('messageDeleted', payload);
+
+      const conversation = await Conversation.findById(message.conversationId).select('participants');
+      conversation?.participants?.forEach((participantId) => {
+        io.to(`user:${participantId.toString()}`).emit('messageDeleted', payload);
       });
     }
 
     res.json({
       success: true,
-      message: 'تم حذف الرسالة',
+      message: isAdmin ? 'تم حذف الرسالة بواسطة الإدارة' : 'تم حذف الرسالة',
     });
   } catch (error) {
     console.error('DeleteMessage error:', error);

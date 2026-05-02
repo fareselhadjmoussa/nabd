@@ -90,8 +90,11 @@ function Chat() {
       }));
     };
 
-    const handleMessageDeleted = ({ messageId }) => {
-      deleteMessage(messageId);
+    const handleMessageDeleted = ({ messageId, content, deletedByAdmin }) => {
+      deleteMessage(messageId, {
+        content: content || (deletedByAdmin ? 'تم حذف هذه الرسالة بواسطة الإدارة' : 'تم حذف هذه الرسالة'),
+        adminDeleted: Boolean(deletedByAdmin),
+      });
     };
 
     const handleReactionAdded = ({ message }) => {
