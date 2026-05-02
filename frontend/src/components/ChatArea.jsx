@@ -50,6 +50,8 @@ function ChatArea() {
   };
 
   const handleTyping = () => {
+    if (!currentConversation?._id) return;
+
     if (!isTyping) {
       setIsTyping(true);
       socketService.startTyping(currentConversation._id);
@@ -65,7 +67,7 @@ function ChatArea() {
   const handleSendMessage = async (e) => {
     e.preventDefault();
 
-    if (!messageText.trim()) return;
+    if (!currentConversation?._id || !messageText.trim()) return;
 
     const text = messageText.trim();
     setMessageText('');
@@ -78,12 +80,26 @@ function ChatArea() {
 
     clearTimeout(typingTimeoutRef.current);
 
-    // Send via socket for real-time
-    socketService.sendMessage({
+    const payload = {
       conversationId: currentConversation._id,
       content: text,
       type: 'text',
-    });
+    };
+
+    // الأفضل الإرسال عبر socket للوقت الحقيقي.
+    // إذا لم يكن socket متصلاً، نستخدم API كخطة بديلة حتى لا تضيع الرسالة.
+    if (socketService.socket?.connected) {
+      socketService.sendMessage(payload);
+      return;
+    }
+
+    const result = await sendMessage(payload);
+    if (result.success) {
+      addMessage(result.message);
+    } else {
+      toast.error(result.message || 'خطأ في إرسال الرسالة');
+      setMessageText(text);
+    }
   };
 
   const handleFileSelect = async (type, file) => {
@@ -95,12 +111,23 @@ function ChatArea() {
     const result = await uploadMedia(type, file);
 
     if (result.success) {
-      socketService.sendMessage({
+      const payload = {
         conversationId: currentConversation._id,
         content: '',
         type,
         mediaUrl: result.url,
-      });
+      };
+
+      if (socketService.socket?.connected) {
+        socketService.sendMessage(payload);
+      } else {
+        const sendResult = await sendMessage(payload);
+        if (sendResult.success) {
+          addMessage(sendResult.message);
+        } else {
+          toast.error(sendResult.message || 'خطأ في إرسال الملف');
+        }
+      }
     } else {
       toast.error(result.message);
     }

@@ -1,35 +1,44 @@
 import { useState, useEffect } from 'react';
 import { useChatStore } from '../stores';
+import { usersAPI } from '../services/api';
 import { toast } from 'react-toastify';
 
 function NewChat({ onClose }) {
-  const { createConversation, setCurrentConversation } = useChatStore();
+  const { createConversation, setCurrentConversation, fetchConversations } = useChatStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
+  const [searchError, setSearchError] = useState('');
 
   useEffect(() => {
     const searchUsers = async () => {
-      if (searchQuery.length < 2) {
+      const query = searchQuery.trim();
+
+      setSelectedUser(null);
+      setSearchError('');
+
+      if (query.length < 2) {
         setSearchResults([]);
+        setLoading(false);
         return;
       }
 
       setLoading(true);
+
       try {
-        const response = await fetch(`/api/users/search?q=${searchQuery}`, {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
-          },
-        });
-        const data = await response.json();
-        setSearchResults(data.data?.users || []);
+        // مهم: لا نستخدم fetch('/api/...') هنا، لأن Vercel سيطلب من رابط الواجهة نفسه.
+        // usersAPI يستخدم VITE_API_URL، لذلك يذهب مباشرة إلى backend على Render.
+        const response = await usersAPI.searchUsers(query);
+        setSearchResults(response.data.data?.users || []);
       } catch (error) {
         console.error('Search error:', error);
+        const message = error.response?.data?.message || 'خطأ في البحث عن المستخدمين';
+        setSearchError(message);
         setSearchResults([]);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     const debounce = setTimeout(searchUsers, 300);
@@ -51,9 +60,10 @@ function NewChat({ onClose }) {
     if (result.success) {
       toast.success('تم إنشاء المحادثة');
       setCurrentConversation(result.conversation);
+      await fetchConversations?.();
       onClose();
     } else {
-      toast.error(result.message);
+      toast.error(result.message || 'خطأ في إنشاء المحادثة');
     }
   };
 
@@ -82,11 +92,13 @@ function NewChat({ onClose }) {
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="ابحث عن مستخدم..."
               className="w-full bg-dark-100 border border-gray-700 rounded-xl px-4 py-2 pl-10 text-white focus:border-primary-500 focus:outline-none"
+              autoFocus
             />
             <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
           </div>
+          <p className="text-xs text-gray-500 mt-2">اكتب حرفين على الأقل من اسم المستخدم أو البريد.</p>
         </div>
 
         {/* Search Results */}
@@ -97,6 +109,10 @@ function NewChat({ onClose }) {
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
+            </div>
+          ) : searchError ? (
+            <div className="p-4 text-center text-red-400">
+              <p>{searchError}</p>
             </div>
           ) : searchResults.length > 0 ? (
             searchResults.map((user) => (
@@ -123,9 +139,9 @@ function NewChat({ onClose }) {
                     <div className="absolute bottom-0 left-0 w-3 h-3 bg-green-500 rounded-full border-2 border-dark-200"></div>
                   )}
                 </div>
-                <div className="flex-1">
-                  <h3 className="text-white font-medium">{user.username}</h3>
-                  <p className="text-xs text-gray-400">
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-white font-medium truncate">{user.username}</h3>
+                  <p className="text-xs text-gray-400 truncate">
                     {user.status === 'online' ? 'متصل' : 'غير متصل'}
                   </p>
                 </div>
@@ -136,9 +152,10 @@ function NewChat({ onClose }) {
                 )}
               </div>
             ))
-          ) : searchQuery.length >= 2 ? (
+          ) : searchQuery.trim().length >= 2 ? (
             <div className="p-4 text-center text-gray-400">
               <p>لم يتم العثور على مستخدمين</p>
+              <p className="text-xs mt-1">تأكد أنك تبحث من حساب مختلف، لأن حسابك الحالي لا يظهر في النتائج.</p>
             </div>
           ) : (
             <div className="p-4 text-center text-gray-400">
@@ -154,7 +171,7 @@ function NewChat({ onClose }) {
         <div className="p-4 border-t border-gray-700">
           <button
             onClick={handleStartChat}
-            disabled={!selectedUser}
+            disabled={!selectedUser || loading}
             className="w-full bg-primary-500 hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-xl transition-colors"
           >
             ابدأ المحادثة

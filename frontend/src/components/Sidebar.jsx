@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuthStore, useChatStore } from '../stores';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
@@ -8,38 +8,71 @@ function Sidebar({ onNewChat, onProfile, onLogout, onConversationSelect }) {
   const { conversations, currentConversation, onlineUsers } = useChatStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredConversations, setFilteredConversations] = useState([]);
-  const searchRef = useRef(null);
+
+  const getOtherParticipant = (conversation) => {
+    return conversation?.participants?.find((participant) => participant?._id !== user?._id);
+  };
+
+  const getConversationTitle = (conversation) => {
+    if (conversation?.type === 'direct') {
+      return getOtherParticipant(conversation)?.username || conversation?.name || 'محادثة';
+    }
+
+    return conversation?.name || 'مجموعة';
+  };
+
+  const getConversationAvatar = (conversation) => {
+    if (conversation?.type === 'direct') {
+      return getOtherParticipant(conversation)?.avatar;
+    }
+
+    return conversation?.avatar;
+  };
 
   useEffect(() => {
-    if (searchQuery) {
-      const filtered = conversations.filter((conv) =>
-        conv.name?.toLowerCase().includes(searchQuery.toLowerCase())
-      );
+    const query = searchQuery.trim().toLowerCase();
+
+    if (query) {
+      const filtered = conversations.filter((conversation) => {
+        const title = getConversationTitle(conversation).toLowerCase();
+        const participants = conversation.participants || [];
+        const participantMatch = participants.some((participant) =>
+          participant?.username?.toLowerCase().includes(query) ||
+          participant?.email?.toLowerCase().includes(query)
+        );
+
+        return title.includes(query) || participantMatch;
+      });
+
       setFilteredConversations(filtered);
     } else {
       setFilteredConversations(conversations);
     }
-  }, [searchQuery, conversations]);
+  }, [searchQuery, conversations, user?._id]);
 
   const getAvatar = (conversation) => {
-    if (conversation.avatar) {
+    const title = getConversationTitle(conversation);
+    const avatar = getConversationAvatar(conversation);
+
+    if (avatar) {
       return (
         <img
-          src={conversation.avatar}
-          alt={conversation.name}
+          src={avatar}
+          alt={title}
           className="w-12 h-12 rounded-full object-cover"
         />
       );
     }
+
     return (
       <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white font-bold text-lg">
-        {conversation.name?.charAt(0) || '?'}
+        {title?.charAt(0) || '?'}
       </div>
     );
   };
 
   const isUserOnline = (participant) => {
-    return onlineUsers.includes(participant?._id);
+    return participant?._id !== user?._id && onlineUsers.includes(participant?._id);
   };
 
   const formatLastMessage = (message) => {
@@ -149,7 +182,7 @@ function Sidebar({ onNewChat, onProfile, onLogout, onConversationSelect }) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
                     <h3 className="text-white font-medium truncate">
-                      {conversation.name}
+                      {getConversationTitle(conversation)}
                     </h3>
                     <span className="text-xs text-gray-400">
                       {formatTime(conversation.updatedAt)}
