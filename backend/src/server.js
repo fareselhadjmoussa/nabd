@@ -72,10 +72,17 @@ const io = new Server(server, {
 app.set('io', io);
 
 // Middleware
+import cors from "cors";
 app.use(helmet({
   contentSecurityPolicy: false,
 }));
-app.use(cors(corsOptions));
+app.use(cors({
+  origin: [
+    "http://localhost:3000",
+    "https://your-frontend.vercel.app"
+  ],
+  credentials: true
+}));
 app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -130,8 +137,8 @@ const startServer = async () => {
       ║                                                ║
       ║   🎉 Nabd Chat Server Started!                 ║
       ║                                                ║
-      ║   📡 Port: ${config.PORT}                            ║
-      ║   🌐 Environment: ${config.NODE_ENV}                    ║
+      ║   📡 Port: ${config.PORT}                      ║
+      ║   🌐 Environment: ${config.NODE_ENV}           ║
       ║   🔐 CORS Origins: ${allowedOrigins.join(', ')}
       ║                                                ║
       ╚════════════════════════════════════════════════╝
