@@ -1,35 +1,43 @@
 const express = require('express');
-const { authenticate } = require('../middleware/auth');
-const userController = require('../controllers/userController');
-
 const router = express.Router();
+const User = require('../models/User');
 
-/**
- * @route   GET /api/users
- * @desc    Get all users
- * @access  Private
- */
-router.get('/', authenticate, userController.getUsers);
+// 🔍 البحث عن المستخدمين
+router.get('/search', async (req, res) => {
+  try {
+    const { q } = req.query;
 
-/**
- * @route   GET /api/users/search
- * @desc    Search users
- * @access  Private
- */
-router.get('/search', authenticate, userController.searchUsers);
+    // إذا ماكانش بحث
+    if (!q || q.trim() === '') {
+      return res.json({
+        success: true,
+        data: { users: [] }
+      });
+    }
 
-/**
- * @route   GET /api/users/:id
- * @desc    Get user by ID
- * @access  Private
- */
-router.get('/:id', authenticate, userController.getUserById);
+    // 🔥 البحث الذكي
+    const users = await User.find({
+      $or: [
+        { username: { $regex: q, $options: 'i' } },
+        { email: { $regex: q, $options: 'i' } }
+      ]
+    })
+      .select('-password') // 🔒 حماية
+      .limit(20);
 
-/**
- * @route   PUT /api/users/status
- * @desc    Update user status
- * @access  Private
- */
-router.put('/status', authenticate, userController.updateStatus);
+    return res.json({
+      success: true,
+      data: { users }
+    });
+
+  } catch (error) {
+    console.error('Search error:', error);
+
+    return res.status(500).json({
+      success: false,
+      message: 'خطأ في البحث'
+    });
+  }
+});
 
 module.exports = router;

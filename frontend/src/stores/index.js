@@ -333,15 +333,24 @@ export const useUsersStore = create((set) => ({
   },
 
   // Search users
-  searchUsers: async (query) => {
-    try {
-      const response = await usersAPI.searchUsers(query);
-      set({ searchResults: response.data.data.users });
-    } catch (error) {
-      console.error('SearchUsers error:', error);
+searchUsers: async (query) => {
+  try {
+    if (!query || query.trim() === '') {
       set({ searchResults: [] });
+      return;
     }
-  },
+
+    const response = await usersAPI.searchUsers(query);
+
+    set({
+      searchResults: response.data.data.users
+    });
+
+  } catch (error) {
+    console.error('SearchUsers error:', error);
+    set({ searchResults: [] });
+  }
+},
 
   // Clear search
   clearSearch: () => {
