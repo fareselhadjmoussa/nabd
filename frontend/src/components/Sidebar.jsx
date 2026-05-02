@@ -208,9 +208,17 @@ function Sidebar({ onNewChat, onProfile, onLogout, onConversationSelect }) {
       {/* User Info */}
       <div className="p-4 border-t border-gray-700">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white font-bold">
-            {user?.username?.charAt(0) || '?'}
-          </div>
+          {user?.avatar ? (
+            <img
+              src={user.avatar}
+              alt={user.username || 'avatar'}
+              className="w-10 h-10 rounded-full object-cover"
+            />
+          ) : (
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white font-bold">
+              {user?.username?.charAt(0) || '?'}
+            </div>
+          )}
           <div className="flex-1">
             <h3 className="text-white font-medium">{user?.username}</h3>
             <p className="text-xs text-green-500">متصل</p>

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Nabd Chat logo mark">
+  <defs>
+    <linearGradient id="g" x1="80" y1="420" x2="420" y2="80" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#21a7c7"/>
+      <stop offset="0.55" stop-color="#20d7c3"/>
+      <stop offset="1" stop-color="#7cff5f"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="110" fill="#061837"/>
+  <path d="M151 367l27-86A150 150 0 1 1 229 330L151 367z" fill="none" stroke="url(#g)" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+  <path d="M145 242h55l22-38 41 126 47-184 39 137 31-62 26 42h61" fill="none" stroke="url(#g)" stroke-width="24" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+</svg>

@@ -2,28 +2,36 @@ import { create } from 'zustand';
 import { authAPI, usersAPI, conversationsAPI, messagesAPI, uploadAPI } from '../services/api';
 import socketService from '../services/socket';
 
-const getId = (value) => {
-  if (!value) return '';
-  if (value._id) return value._id.toString();
-  return value.toString();
-};
+const getId = (value) => value?._id?.toString?.() || value?.toString?.() || '';
+const getConversationIdFromMessage = (message) => getId(message?.conversationId || message?.conversation);
+const getMessageSenderId = (message) => getId(message?.sender);
+const nowIso = () => new Date().toISOString();
 
-const getConversationTime = (conversation) => {
-  const date = conversation?.lastMessageTime || conversation?.updatedAt || conversation?.createdAt;
-  return date ? new Date(date).getTime() : 0;
-};
+const sortConversations = (conversations) => [...conversations].sort((a, b) => {
+  const aTime = new Date(a.updatedAt || a.lastMessage?.createdAt || a.createdAt || 0).getTime();
+  const bTime = new Date(b.updatedAt || b.lastMessage?.createdAt || b.createdAt || 0).getTime();
+  return bTime - aTime;
+});
 
-const sortConversations = (conversations) => {
-  return [...conversations].sort((a, b) => getConversationTime(b) - getConversationTime(a));
-};
+const buildLastMessage = (message) => ({
+  _id: message._id,
+  content: message.content,
+  type: message.type,
+  sender: message.sender,
+  createdAt: message.createdAt,
+});
 
-const normalizeUnreadCount = (conversation) => {
-  if (!conversation) return conversation;
+const updateUserInParticipants = (participants = [], updatedUser) => participants.map((participant) => (
+  getId(participant) === getId(updatedUser)
+    ? { ...participant, ...updatedUser }
+    : participant
+));
 
-  // Mongo Map may arrive as object. Keep it unchanged for backend compatibility,
-  // but ensure Sidebar can still receive a numeric unreadCount when backend sends one.
-  return conversation;
-};
+const updateMessageSender = (message, updatedUser) => (
+  getMessageSenderId(message) === getId(updatedUser)
+    ? { ...message, sender: { ...message.sender, ...updatedUser } }
+    : message
+);
 
 // Auth Store
 export const useAuthStore = create((set, get) => ({
@@ -31,7 +39,6 @@ export const useAuthStore = create((set, get) => ({
   isAuthenticated: false,
   isLoading: true,
 
-  // Initialize from localStorage
   init: () => {
     const token = localStorage.getItem('accessToken');
     if (token) {
@@ -41,10 +48,14 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
-  // Register
   register: async (data) => {
     try {
-      const response = await authAPI.register(data);
+      const payload = {
+        ...data,
+        username: String(data.username || '').trim(),
+        email: String(data.email || '').trim().toLowerCase(),
+      };
+      const response = await authAPI.register(payload);
       const { user, accessToken } = response.data.data;
       localStorage.setItem('accessToken', accessToken);
       set({ user, isAuthenticated: true });
@@ -58,10 +69,13 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
-  // Login
   login: async (data) => {
     try {
-      const response = await authAPI.login(data);
+      const payload = {
+        ...data,
+        email: String(data.email || '').trim().toLowerCase(),
+      };
+      const response = await authAPI.login(payload);
       const { user, accessToken } = response.data.data;
       localStorage.setItem('accessToken', accessToken);
       set({ user, isAuthenticated: true });
@@ -75,7 +89,6 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
-  // Logout
   logout: async () => {
     try {
       await authAPI.logout();
@@ -85,12 +98,9 @@ export const useAuthStore = create((set, get) => ({
     localStorage.removeItem('accessToken');
     socketService.disconnect();
     set({ user: null, isAuthenticated: false });
-    get().clearAuthLoading?.();
+    useChatStore.getState().clearChat();
   },
 
-  clearAuthLoading: () => set({ isLoading: false }),
-
-  // Fetch current user
   fetchUser: async () => {
     try {
       set({ isLoading: true });
@@ -98,9 +108,7 @@ export const useAuthStore = create((set, get) => ({
       const user = response.data.data.user;
       set({ user, isAuthenticated: true });
       const token = localStorage.getItem('accessToken');
-      if (token) {
-        socketService.connect(token);
-      }
+      if (token) socketService.connect(token);
     } catch (error) {
       console.error('FetchUser error:', error);
       localStorage.removeItem('accessToken');
@@ -110,13 +118,15 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
-  // Update profile
   updateProfile: async (data) => {
     try {
-      const response = await authAPI.updateProfile(data);
+      const payload = { ...data };
+      if (payload.username !== undefined) payload.username = String(payload.username).trim();
+      const response = await authAPI.updateProfile(payload);
       const user = response.data.data.user;
       set({ user });
-      return { success: true };
+      useChatStore.getState().updateUserEverywhere(user);
+      return { success: true, user };
     } catch (error) {
       return {
         success: false,
@@ -125,13 +135,13 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
-  // Upload avatar
   uploadAvatar: async (file) => {
     try {
       const response = await uploadAPI.uploadAvatar(file);
       const avatar = response.data.data.url;
-      await get().updateProfile({ avatar });
-      return { success: true, url: avatar };
+      const result = await get().updateProfile({ avatar });
+      if (!result.success) return result;
+      return { success: true, url: avatar, user: result.user };
     } catch (error) {
       return {
         success: false,
@@ -146,15 +156,16 @@ export const useChatStore = create((set, get) => ({
   conversations: [],
   currentConversation: null,
   messages: [],
+  messagesByConversation: {},
   typingUsers: {},
   onlineUsers: [],
+  fetchingMessages: {},
 
-  // Fetch conversations
   fetchConversations: async () => {
     try {
       const response = await conversationsAPI.getConversations();
       const conversations = response.data.data.conversations || [];
-      set({ conversations: sortConversations(conversations.map(normalizeUnreadCount)) });
+      set({ conversations: sortConversations(conversations) });
       return conversations;
     } catch (error) {
       console.error('FetchConversations error:', error);
@@ -162,39 +173,30 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
-  // Insert or update a conversation in the sidebar
-  upsertConversation: (conversation) => {
-    if (!conversation?._id) return;
-
-    set((state) => {
-      const normalized = normalizeUnreadCount(conversation);
-      const exists = state.conversations.some((item) => item._id === normalized._id);
-      const conversations = exists
-        ? state.conversations.map((item) => (item._id === normalized._id ? { ...item, ...normalized } : item))
-        : [normalized, ...state.conversations];
-
-      const currentConversation = state.currentConversation?._id === normalized._id
-        ? { ...state.currentConversation, ...normalized }
-        : state.currentConversation;
-
-      return {
-        conversations: sortConversations(conversations),
-        currentConversation,
-      };
+  setCurrentConversation: (conversation) => {
+    const conversationId = getId(conversation);
+    const cachedMessages = get().messagesByConversation[conversationId] || [];
+    set({
+      currentConversation: conversation,
+      messages: cachedMessages,
+      conversations: get().conversations.map((item) => (
+        getId(item) === conversationId ? { ...item, unreadCount: 0 } : item
+      )),
     });
   },
 
-  // Set current conversation
-  setCurrentConversation: (conversation) => {
-    set({ currentConversation: conversation });
-  },
-
-  // Create conversation
   createConversation: async (data) => {
     try {
       const response = await conversationsAPI.createConversation(data);
       const conversation = response.data.data.conversation;
-      get().upsertConversation(conversation);
+      set((state) => {
+        const exists = state.conversations.some((item) => getId(item) === getId(conversation));
+        const conversations = exists
+          ? state.conversations.map((item) => getId(item) === getId(conversation) ? { ...item, ...conversation } : item)
+          : [conversation, ...state.conversations];
+
+        return { conversations: sortConversations(conversations) };
+      });
       return { success: true, conversation };
     } catch (error) {
       return {
@@ -204,109 +206,227 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
-  // Fetch messages
-  fetchMessages: async (conversationId, page = 1) => {
+  fetchMessages: async (conversationId, page = 1, options = {}) => {
+    const id = conversationId?.toString();
+    if (!id) return [];
+
+    const cached = get().messagesByConversation[id];
+    if (page === 1 && cached?.length && !options.force) {
+      set({ messages: cached });
+    }
+
     try {
-      const response = await messagesAPI.getMessages(conversationId, { page, limit: 50 });
+      set((state) => ({ fetchingMessages: { ...state.fetchingMessages, [id]: true } }));
+      const response = await messagesAPI.getMessages(id, { page, limit: 50 });
       const { messages } = response.data.data;
 
-      if (page === 1) {
-        set({ messages });
-      } else {
-        set((state) => {
-          const existingIds = new Set(state.messages.map((message) => message._id));
-          const newMessages = messages.filter((message) => !existingIds.has(message._id));
-          return { messages: [...newMessages, ...state.messages] };
-        });
-      }
+      set((state) => {
+        const existing = page === 1 ? [] : (state.messagesByConversation[id] || []);
+        const merged = [...messages, ...existing].filter((message, index, arr) => (
+          arr.findIndex((item) => getId(item) === getId(message)) === index
+        ));
+
+        const nextMessagesByConversation = {
+          ...state.messagesByConversation,
+          [id]: page === 1 ? messages : merged,
+        };
+
+        const isCurrent = getId(state.currentConversation) === id;
+        return {
+          messagesByConversation: nextMessagesByConversation,
+          messages: isCurrent ? nextMessagesByConversation[id] : state.messages,
+          fetchingMessages: { ...state.fetchingMessages, [id]: false },
+        };
+      });
 
       return messages;
     } catch (error) {
       console.error('FetchMessages error:', error);
-      return [];
+      set((state) => ({ fetchingMessages: { ...state.fetchingMessages, [id]: false } }));
+      return cached || [];
     }
   },
 
-  // Add message without duplicates
-  addMessage: (message) => {
-    if (!message?._id) return;
+  addOptimisticMessage: ({ conversationId, content = '', type = 'text', mediaUrl = '' }) => {
+    const user = useAuthStore.getState().user;
+    const clientId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const message = {
+      _id: clientId,
+      clientId,
+      conversationId,
+      sender: user,
+      type,
+      content,
+      mediaUrl,
+      readBy: [{ user: user?._id, readAt: nowIso() }],
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+      pending: true,
+    };
+
+    get().addMessage(message);
+    return clientId;
+  },
+
+  addMessage: (message, conversation) => {
+    if (!message) return;
+
+    const conversationId = getConversationIdFromMessage(message) || getId(conversation);
+    if (!conversationId) return;
 
     set((state) => {
-      if (state.messages.some((item) => item._id === message._id)) {
-        return state;
+      const currentMessages = state.messagesByConversation[conversationId] || [];
+      const clientId = message.clientId;
+      const realId = getId(message);
+      const existingIndex = currentMessages.findIndex((item) => (
+        (realId && getId(item) === realId) ||
+        (clientId && (item.clientId === clientId || getId(item) === clientId))
+      ));
+
+      let nextMessages;
+      if (existingIndex >= 0) {
+        nextMessages = currentMessages.map((item, index) => (
+          index === existingIndex ? { ...item, ...message, pending: false } : item
+        ));
+      } else {
+        nextMessages = [...currentMessages, { ...message, pending: false }];
       }
 
-      const messages = [...state.messages, message].sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      nextMessages = nextMessages.sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+
+      const messagesByConversation = {
+        ...state.messagesByConversation,
+        [conversationId]: nextMessages,
+      };
+
+      const isCurrent = getId(state.currentConversation) === conversationId;
+      const currentUserId = useAuthStore.getState().user?._id;
+      const isMine = getMessageSenderId(message) === currentUserId;
+
+      const updatedConversations = get().buildConversationsWithMessage(
+        state.conversations,
+        conversationId,
+        message,
+        conversation,
+        { isCurrent, isMine }
       );
 
-      return { messages };
+      return {
+        messagesByConversation,
+        messages: isCurrent ? nextMessages : state.messages,
+        conversations: updatedConversations,
+        currentConversation: isCurrent && conversation
+          ? { ...state.currentConversation, ...conversation, unreadCount: 0 }
+          : state.currentConversation,
+      };
     });
   },
 
-  // Update message
+  confirmMessage: (clientId, message, conversation) => {
+    if (!message) return;
+    get().addMessage({ ...message, clientId, pending: false }, conversation);
+  },
+
+  removeMessage: (messageId) => {
+    set((state) => {
+      const conversationId = getConversationIdFromMessage(
+        state.messages.find((message) => getId(message) === messageId || message.clientId === messageId)
+      ) || getId(state.currentConversation);
+
+      if (!conversationId) return state;
+
+      const nextMessages = (state.messagesByConversation[conversationId] || []).filter((message) => (
+        getId(message) !== messageId && message.clientId !== messageId
+      ));
+
+      const messagesByConversation = {
+        ...state.messagesByConversation,
+        [conversationId]: nextMessages,
+      };
+
+      return {
+        messagesByConversation,
+        messages: getId(state.currentConversation) === conversationId ? nextMessages : state.messages,
+      };
+    });
+  },
+
+  buildConversationsWithMessage: (conversations, conversationId, message, incomingConversation, options = {}) => {
+    const { isCurrent = false, isMine = false } = options;
+    const existing = conversations.find((conversation) => getId(conversation) === conversationId);
+    const baseConversation = incomingConversation || existing || {
+      _id: conversationId,
+      type: 'direct',
+      name: 'محادثة',
+      participants: [],
+      unreadCount: 0,
+      createdAt: message.createdAt || nowIso(),
+    };
+
+    const nextConversation = {
+      ...existing,
+      ...baseConversation,
+      lastMessage: buildLastMessage(message),
+      updatedAt: message.createdAt || nowIso(),
+      unreadCount: isCurrent || isMine ? 0 : ((existing?.unreadCount || 0) + 1),
+    };
+
+    const withoutCurrent = conversations.filter((conversation) => getId(conversation) !== conversationId);
+    return sortConversations([nextConversation, ...withoutCurrent]);
+  },
+
+  updateConversationWithMessage: (message, conversation) => {
+    const conversationId = getConversationIdFromMessage(message) || getId(conversation);
+    if (!conversationId) return;
+
+    set((state) => {
+      const currentUserId = useAuthStore.getState().user?._id;
+      const isMine = getMessageSenderId(message) === currentUserId;
+      const isCurrent = getId(state.currentConversation) === conversationId;
+
+      return {
+        conversations: get().buildConversationsWithMessage(
+          state.conversations,
+          conversationId,
+          message,
+          conversation,
+          { isCurrent, isMine }
+        ),
+      };
+    });
+  },
+
   updateMessage: (messageId, updates) => {
-    if (!messageId) return;
+    set((state) => {
+      const updateList = (list = []) => list.map((message) => {
+        if (getId(message) !== messageId) return message;
+        const nextUpdates = typeof updates === 'function' ? updates(message) : updates;
+        return { ...message, ...nextUpdates };
+      });
 
-    set((state) => ({
-      messages: state.messages.map((message) =>
-        message._id === messageId ? { ...message, ...updates } : message
-      ),
-    }));
+      const messagesByConversation = Object.fromEntries(
+        Object.entries(state.messagesByConversation).map(([conversationId, list]) => [conversationId, updateList(list)])
+      );
+
+      return {
+        messagesByConversation,
+        messages: updateList(state.messages),
+      };
+    });
   },
 
-  // Mark one message, or all current messages, as read by a user
-  markMessageRead: (messageId, userId) => {
-    if (!userId) return;
-
-    set((state) => ({
-      messages: state.messages.map((message) => {
-        if (messageId && message._id !== messageId) return message;
-
-        const readBy = Array.isArray(message.readBy) ? message.readBy : [];
-        const alreadyRead = readBy.some((entry) => getId(entry.user || entry) === getId(userId));
-        if (alreadyRead) return message;
-
-        return {
-          ...message,
-          readBy: [...readBy, { user: userId, readAt: new Date().toISOString() }],
-        };
-      }),
-    }));
-  },
-
-  // Delete message locally
   deleteMessage: (messageId) => {
-    if (!messageId) return;
-
-    set((state) => ({
-      messages: state.messages.map((message) =>
-        message._id === messageId
-          ? { ...message, deleted: true, content: 'تم حذف هذه الرسالة', mediaUrl: '' }
-          : message
-      ),
-    }));
+    get().updateMessage(messageId, { deleted: true, content: 'تم حذف هذه الرسالة' });
   },
 
-  // Send message via API, used as a fallback when Socket is not connected
   sendMessage: async (data) => {
     try {
       const response = await messagesAPI.sendMessage(data);
-      const payload = response.data.data;
-
-      if (payload?.conversation) {
-        get().upsertConversation(payload.conversation);
-      }
-
-      if (payload?.message) {
-        const currentConversationId = getId(get().currentConversation?._id);
-        const messageConversationId = getId(payload.conversationId || payload.message.conversationId);
-        if (currentConversationId && currentConversationId === messageConversationId) {
-          get().addMessage(payload.message);
-        }
-      }
-
-      return { success: true, message: payload.message, conversation: payload.conversation };
+      return {
+        success: true,
+        message: response.data.data.message,
+        conversation: response.data.data.conversation,
+      };
     } catch (error) {
       return {
         success: false,
@@ -315,21 +435,13 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
-  // Upload media
   uploadMedia: async (type, file) => {
     try {
       let response;
-      if (type === 'image') {
-        response = await uploadAPI.uploadImage(file);
-      } else if (type === 'video') {
-        response = await uploadAPI.uploadVideo(file);
-      } else if (type === 'audio') {
-        response = await uploadAPI.uploadAudio(file);
-      }
-
-      if (!response) {
-        return { success: false, message: 'نوع الملف غير مدعوم' };
-      }
+      if (type === 'image') response = await uploadAPI.uploadImage(file);
+      else if (type === 'video') response = await uploadAPI.uploadVideo(file);
+      else if (type === 'audio') response = await uploadAPI.uploadAudio(file);
+      else throw new Error('نوع الملف غير مدعوم');
 
       return { success: true, url: response.data.data.url };
     } catch (error) {
@@ -340,21 +452,23 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
-  // Mark conversation as read
   markAsRead: async (conversationId) => {
+    if (!conversationId) return;
     try {
-      await conversationsAPI.markAsRead(conversationId);
       set((state) => ({
-        conversations: state.conversations.map((conversation) =>
-          conversation._id === conversationId ? { ...conversation, unreadCount: 0 } : conversation
-        ),
+        conversations: state.conversations.map((conversation) => (
+          getId(conversation) === conversationId ? { ...conversation, unreadCount: 0 } : conversation
+        )),
+        currentConversation: getId(state.currentConversation) === conversationId
+          ? { ...state.currentConversation, unreadCount: 0 }
+          : state.currentConversation,
       }));
+      await conversationsAPI.markAsRead(conversationId);
     } catch (error) {
       console.error('MarkAsRead error:', error);
     }
   },
 
-  // Update typing status
   setTyping: (conversationId, userId, username) => {
     set((state) => ({
       typingUsers: {
@@ -364,68 +478,86 @@ export const useChatStore = create((set, get) => ({
     }));
   },
 
-  // Clear typing
   clearTyping: (conversationId, userId) => {
     set((state) => {
       const newTyping = { ...state.typingUsers };
-      if (newTyping[conversationId]?.userId === userId) {
-        delete newTyping[conversationId];
-      }
+      if (newTyping[conversationId]?.userId === userId) delete newTyping[conversationId];
       return { typingUsers: newTyping };
     });
   },
 
-  // Set online users
   setOnlineUsers: (users) => {
-    set({ onlineUsers: Array.from(new Set(users || [])) });
+    set({ onlineUsers: [...new Set(users)] });
   },
 
-  // Add online user
   addOnlineUser: (userId) => {
-    if (!userId) return;
-
     set((state) => ({
-      onlineUsers: Array.from(new Set([...state.onlineUsers, userId])),
-      conversations: state.conversations.map((conversation) =>
-        conversation.participants?.some((participant) => getId(participant) === getId(userId))
-          ? {
-              ...conversation,
-              participants: conversation.participants.map((participant) =>
-                getId(participant) === getId(userId) ? { ...participant, status: 'online' } : participant
-              ),
-            }
-          : conversation
-      ),
+      onlineUsers: [...new Set([...state.onlineUsers, userId])],
+      conversations: state.conversations.map((conversation) => ({
+        ...conversation,
+        participants: conversation.participants?.map((participant) => (
+          getId(participant) === userId ? { ...participant, status: 'online' } : participant
+        )),
+      })),
     }));
   },
 
-  // Remove online user
   removeOnlineUser: (userId) => {
-    if (!userId) return;
-
     set((state) => ({
-      onlineUsers: state.onlineUsers.filter((id) => getId(id) !== getId(userId)),
-      conversations: state.conversations.map((conversation) =>
-        conversation.participants?.some((participant) => getId(participant) === getId(userId))
-          ? {
-              ...conversation,
-              participants: conversation.participants.map((participant) =>
-                getId(participant) === getId(userId) ? { ...participant, status: 'offline' } : participant
-              ),
-            }
-          : conversation
-      ),
+      onlineUsers: state.onlineUsers.filter((id) => id !== userId),
+      conversations: state.conversations.map((conversation) => ({
+        ...conversation,
+        participants: conversation.participants?.map((participant) => (
+          getId(participant) === userId ? { ...participant, status: 'offline' } : participant
+        )),
+      })),
     }));
   },
 
-  // Clear chat state
+  updateUserEverywhere: (updatedUser) => {
+    if (!updatedUser?._id) return;
+
+    const currentAuthUser = useAuthStore.getState().user;
+    if (getId(currentAuthUser) === getId(updatedUser)) {
+      useAuthStore.setState({ user: { ...currentAuthUser, ...updatedUser } });
+    }
+
+    set((state) => {
+      const updateConversation = (conversation) => ({
+        ...conversation,
+        participants: updateUserInParticipants(conversation.participants, updatedUser),
+        avatar: conversation.type === 'direct'
+          ? (updateUserInParticipants(conversation.participants, updatedUser)[0]?.avatar || conversation.avatar)
+          : conversation.avatar,
+      });
+
+      const messagesByConversation = Object.fromEntries(
+        Object.entries(state.messagesByConversation).map(([conversationId, list]) => [
+          conversationId,
+          list.map((message) => updateMessageSender(message, updatedUser)),
+        ])
+      );
+
+      return {
+        conversations: state.conversations.map(updateConversation),
+        currentConversation: state.currentConversation
+          ? updateConversation(state.currentConversation)
+          : state.currentConversation,
+        messages: state.messages.map((message) => updateMessageSender(message, updatedUser)),
+        messagesByConversation,
+      };
+    });
+  },
+
   clearChat: () => {
     set({
       conversations: [],
       currentConversation: null,
       messages: [],
+      messagesByConversation: {},
       typingUsers: {},
       onlineUsers: [],
+      fetchingMessages: {},
     });
   },
 }));
@@ -435,36 +567,30 @@ export const useUsersStore = create((set) => ({
   users: [],
   searchResults: [],
 
-  // Fetch users
   fetchUsers: async (params) => {
     try {
       const response = await usersAPI.getUsers(params);
-      set({ users: response.data.data.users || [] });
+      set({ users: response.data.data.users });
     } catch (error) {
       console.error('FetchUsers error:', error);
     }
   },
 
-  // Search users
   searchUsers: async (query) => {
     try {
       if (!query || query.trim() === '') {
         set({ searchResults: [] });
-        return [];
+        return;
       }
 
       const response = await usersAPI.searchUsers(query.trim());
-      const users = response.data.data.users || [];
-      set({ searchResults: users });
-      return users;
+      set({ searchResults: response.data.data.users || [] });
     } catch (error) {
       console.error('SearchUsers error:', error);
       set({ searchResults: [] });
-      return [];
     }
   },
 
-  // Clear search
   clearSearch: () => {
     set({ searchResults: [] });
   },

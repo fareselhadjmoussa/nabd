@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useAuthStore } from '../stores';
 import { toast } from 'react-toastify';
 
@@ -9,8 +9,12 @@ function UserProfile({ onClose }) {
   const [loading, setLoading] = useState(false);
   const fileInputRef = useRef(null);
 
+  useEffect(() => {
+    setUsername(user?.username || '');
+  }, [user?.username]);
+
   const handleAvatarClick = () => {
-    fileInputRef.current?.click();
+    if (!loading) fileInputRef.current?.click();
   };
 
   const handleAvatarChange = async (e) => {
@@ -27,37 +31,63 @@ function UserProfile({ onClose }) {
     }
 
     setLoading(false);
-    fileInputRef.current.value = '';
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleSave = async () => {
-    if (!username.trim()) {
+    const trimmedUsername = username.trim();
+
+    if (!trimmedUsername) {
       toast.error('يرجى إدخال اسم المستخدم');
       return;
     }
 
+    if (trimmedUsername.length < 3 || trimmedUsername.length > 30) {
+      toast.error('اسم المستخدم يجب أن يكون 3-30 حرف');
+      return;
+    }
+
     setLoading(true);
-    const result = await updateProfile({ username: username.trim() });
+    const result = await updateProfile({ username: trimmedUsername });
 
     if (result.success) {
       toast.success('تم تحديث الملف الشخصي');
       setIsEditing(false);
     } else {
       toast.error(result.message);
+      setUsername(user?.username || '');
     }
 
     setLoading(false);
   };
 
+  const renderAvatar = (sizeClass = 'w-24 h-24', textClass = 'text-3xl') => {
+    if (user?.avatar) {
+      return (
+        <img
+          src={user.avatar}
+          alt={user.username}
+          className={`${sizeClass} rounded-full object-cover border-4 border-dark-100`}
+        />
+      );
+    }
+
+    return (
+      <div className={`${sizeClass} rounded-full bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white ${textClass} font-bold border-4 border-dark-100`}>
+        {user?.username?.charAt(0) || '?'}
+      </div>
+    );
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-dark-200 rounded-2xl w-full max-w-md mx-4 overflow-hidden">
-        {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-700">
           <h2 className="text-lg font-bold text-white">الملف الشخصي</h2>
           <button
             onClick={onClose}
             className="p-2 hover:bg-dark-100 rounded-full transition-colors text-gray-400 hover:text-white"
+            disabled={loading}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -65,30 +95,25 @@ function UserProfile({ onClose }) {
           </button>
         </div>
 
-        {/* Content */}
         <div className="p-6">
-          {/* Avatar */}
           <div className="flex flex-col items-center mb-6">
             <div
-              className="relative cursor-pointer group"
+              className={`relative group ${loading ? 'cursor-wait opacity-80' : 'cursor-pointer'}`}
               onClick={handleAvatarClick}
             >
-              {user?.avatar ? (
-                <img
-                  src={user.avatar}
-                  alt={user.username}
-                  className="w-24 h-24 rounded-full object-cover border-4 border-dark-100"
-                />
-              ) : (
-                <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white text-3xl font-bold border-4 border-dark-100">
-                  {user?.username?.charAt(0) || '?'}
-                </div>
-              )}
+              {renderAvatar()}
               <div className="absolute inset-0 bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
+                {loading ? (
+                  <svg className="animate-spin w-8 h-8 text-white" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                ) : (
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                )}
               </div>
             </div>
             <input
@@ -101,7 +126,6 @@ function UserProfile({ onClose }) {
             <p className="text-sm text-gray-400 mt-2">انقر لتغيير الصورة</p>
           </div>
 
-          {/* Username */}
           <div className="mb-6">
             <label className="block text-sm text-gray-400 mb-2">اسم المستخدم</label>
             {isEditing ? (
@@ -111,6 +135,7 @@ function UserProfile({ onClose }) {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   className="flex-1 bg-dark-100 border border-gray-700 rounded-xl px-4 py-2 text-white focus:border-primary-500 focus:outline-none"
+                  disabled={loading}
                 />
                 <button
                   onClick={handleSave}
@@ -133,13 +158,11 @@ function UserProfile({ onClose }) {
             )}
           </div>
 
-          {/* Email */}
           <div className="mb-6">
             <label className="block text-sm text-gray-400 mb-2">البريد الإلكتروني</label>
             <span className="text-white">{user?.email}</span>
           </div>
 
-          {/* Status */}
           <div className="mb-6">
             <label className="block text-sm text-gray-400 mb-2">الحالة</label>
             <div className="flex items-center gap-2">
@@ -148,16 +171,14 @@ function UserProfile({ onClose }) {
             </div>
           </div>
 
-          {/* Language */}
           <div>
             <label className="block text-sm text-gray-400 mb-2">اللغة</label>
             <span className="text-white">{user?.language === 'ar' ? 'العربية' : 'English'}</span>
           </div>
         </div>
 
-        {/* Footer */}
         <div className="p-4 border-t border-gray-700 text-center text-sm text-gray-400">
-          انضم في {new Date(user?.createdAt).toLocaleDateString('ar-SA')}
+          انضم في {user?.createdAt ? new Date(user.createdAt).toLocaleDateString('ar-SA') : '-'}
         </div>
       </div>
     </div>

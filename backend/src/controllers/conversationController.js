@@ -1,6 +1,53 @@
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 
+const formatConversationForUser = (conversation, userId) => {
+  const conv = typeof conversation.toObject === 'function'
+    ? conversation.toObject({ virtuals: true })
+    : conversation;
+
+  const currentUserId = userId.toString();
+  const participants = conv.participants || [];
+  const otherParticipants = participants.filter((participant) => (
+    (participant._id?.toString?.() || participant.toString()) !== currentUserId
+  ));
+
+  const name = conv.type === 'direct'
+    ? (otherParticipants[0]?.username || conv.name || 'محادثة')
+    : (conv.name || 'مجموعة');
+
+  const avatar = conv.type === 'direct'
+    ? (otherParticipants[0]?.avatar || '')
+    : (conv.avatar || '');
+
+  return {
+    _id: conv._id,
+    type: conv.type,
+    name,
+    avatar,
+    participants: otherParticipants,
+    lastMessage: conv.lastMessage
+      ? {
+          _id: conv.lastMessage._id,
+          content: conv.lastMessage.content,
+          type: conv.lastMessage.type,
+          sender: conv.lastMessage.sender,
+          createdAt: conv.lastMessage.createdAt,
+        }
+      : null,
+    unreadCount: conv.unreadCount?.get?.(currentUserId) || conv.unreadCount?.[currentUserId] || 0,
+    createdAt: conv.createdAt,
+    updatedAt: conv.updatedAt || conv.lastMessageTime || conv.createdAt,
+  };
+};
+
+const populateConversation = (query) => query
+  .populate('participants', 'username avatar status lastSeen email')
+  .populate({
+    path: 'lastMessage',
+    populate: { path: 'sender', select: 'username avatar' },
+  });
+
 /**
  * Get all conversations for current user
  * GET /api/conversations
@@ -9,39 +56,12 @@ const getConversations = async (req, res) => {
   try {
     const userId = req.userId;
 
-    const conversations = await Conversation.find({
+    const conversations = await populateConversation(Conversation.find({
       participants: userId,
-    })
-      .populate('participants', 'username avatar status lastSeen')
-      .populate('lastMessage')
+    }))
       .sort({ updatedAt: -1 });
 
-    // Format conversations with additional info
-    const formattedConversations = conversations.map((conv) => {
-      const otherParticipants = conv.participants.filter(
-        (p) => !p._id.equals(userId)
-      );
-
-      return {
-        _id: conv._id,
-        type: conv.type,
-        name: conv.name || otherParticipants.map((p) => p.username).join(', '),
-        avatar: conv.avatar || otherParticipants[0]?.avatar,
-        participants: otherParticipants,
-        lastMessage: conv.lastMessage
-          ? {
-              _id: conv.lastMessage._id,
-              content: conv.lastMessage.content,
-              type: conv.lastMessage.type,
-              sender: conv.lastMessage.sender,
-              createdAt: conv.lastMessage.createdAt,
-            }
-          : null,
-        unreadCount: conv.unreadCount?.get(userId.toString()) || 0,
-        createdAt: conv.createdAt,
-        updatedAt: conv.updatedAt,
-      };
-    });
+    const formattedConversations = conversations.map((conv) => formatConversationForUser(conv, userId));
 
     res.json({
       success: true,
@@ -65,10 +85,10 @@ const getConversationById = async (req, res) => {
     const { id } = req.params;
     const userId = req.userId;
 
-    const conversation = await Conversation.findOne({
+    const conversation = await populateConversation(Conversation.findOne({
       _id: id,
       participants: userId,
-    }).populate('participants', 'username avatar status lastSeen');
+    }));
 
     if (!conversation) {
       return res.status(404).json({
@@ -79,7 +99,7 @@ const getConversationById = async (req, res) => {
 
     res.json({
       success: true,
-      data: { conversation },
+      data: { conversation: formatConversationForUser(conversation, userId) },
     });
   } catch (error) {
     console.error('GetConversationById error:', error);
@@ -99,23 +119,33 @@ const createConversation = async (req, res) => {
     const { participantId, type = 'direct', name } = req.body;
     const userId = req.userId;
 
-    // For direct messages, check if conversation already exists
+    if (type === 'direct' && !participantId) {
+      return res.status(400).json({
+        success: false,
+        message: 'يرجى اختيار مستخدم لبدء المحادثة',
+      });
+    }
+
+    if (type === 'direct' && participantId === userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'لا يمكنك بدء محادثة مع نفسك',
+      });
+    }
+
     if (type === 'direct' && participantId) {
-      const existingConversation = await Conversation.findDirectConversation(
-        userId,
-        participantId
-      );
+      let existingConversation = await Conversation.findDirectConversation(userId, participantId);
 
       if (existingConversation) {
+        existingConversation = await populateConversation(Conversation.findById(existingConversation._id));
         return res.json({
           success: true,
           message: 'تم العثور على المحادثة',
-          data: { conversation: existingConversation },
+          data: { conversation: formatConversationForUser(existingConversation, userId) },
         });
       }
     }
 
-    // Create new conversation
     const conversation = new Conversation({
       type,
       name: type === 'group' ? name : undefined,
@@ -125,13 +155,12 @@ const createConversation = async (req, res) => {
 
     await conversation.save();
 
-    // Populate participants
-    await conversation.populate('participants', 'username avatar status lastSeen');
+    const populatedConversation = await populateConversation(Conversation.findById(conversation._id));
 
     res.status(201).json({
       success: true,
       message: 'تم إنشاء المحادثة',
-      data: { conversation },
+      data: { conversation: formatConversationForUser(populatedConversation, userId) },
     });
   } catch (error) {
     console.error('CreateConversation error:', error);
@@ -175,7 +204,7 @@ const addParticipant = async (req, res) => {
       });
     }
 
-    if (conversation.participants.includes(participantId)) {
+    if (conversation.participants.some((p) => p.equals(participantId))) {
       return res.status(400).json({
         success: false,
         message: 'المستخدم مشارك بالفعل',
@@ -184,12 +213,13 @@ const addParticipant = async (req, res) => {
 
     conversation.participants.push(participantId);
     await conversation.save();
-    await conversation.populate('participants', 'username avatar status lastSeen');
+
+    const populatedConversation = await populateConversation(Conversation.findById(conversation._id));
 
     res.json({
       success: true,
       message: 'تم إضافة المشارك',
-      data: { conversation },
+      data: { conversation: formatConversationForUser(populatedConversation, userId) },
     });
   } catch (error) {
     console.error('AddParticipant error:', error);
@@ -225,23 +255,22 @@ const removeParticipant = async (req, res) => {
       });
     }
 
-    if (!conversation.admin.equals(userId) && !participantId.equals(userId)) {
+    if (!conversation.admin.equals(userId) && participantId !== userId) {
       return res.status(403).json({
         success: false,
         message: 'غير مصرح',
       });
     }
 
-    conversation.participants = conversation.participants.filter(
-      (p) => !p.equals(participantId)
-    );
+    conversation.participants = conversation.participants.filter((p) => !p.equals(participantId));
     await conversation.save();
-    await conversation.populate('participants', 'username avatar status lastSeen');
+
+    const populatedConversation = await populateConversation(Conversation.findById(conversation._id));
 
     res.json({
       success: true,
       message: 'تم إزالة المشارك',
-      data: { conversation },
+      data: { conversation: formatConversationForUser(populatedConversation, userId) },
     });
   } catch (error) {
     console.error('RemoveParticipant error:', error);
@@ -273,7 +302,6 @@ const markAsRead = async (req, res) => {
       });
     }
 
-    // Reset unread count
     conversation.unreadCount.set(userId.toString(), 0);
     await conversation.save();
 
@@ -311,10 +339,7 @@ const deleteConversation = async (req, res) => {
       });
     }
 
-    // Delete all messages in conversation
     await Message.deleteMany({ conversationId: id });
-
-    // Delete conversation
     await conversation.deleteOne();
 
     res.json({

@@ -74,7 +74,7 @@ function Message({ message, isSent, showAvatar }) {
       </div>
 
       <div
-        className={`relative max-w-[70%] ${isSent ? 'bg-primary-500 message-bubble-sent' : 'bg-dark-100 message-bubble'} px-4 py-2 ${message.deleted ? 'opacity-60' : ''}`}
+        className={`relative max-w-[70%] ${isSent ? 'bg-primary-500 message-bubble-sent' : 'bg-dark-100 message-bubble'} px-4 py-2 ${message.deleted ? 'opacity-60' : ''} ${message.pending ? 'opacity-70' : ''}`}
       >
         {message.reactions?.length > 0 && (
           <div className="absolute -bottom-2 right-0 bg-dark-200 rounded-full px-2 py-1 flex items-center gap-1">
@@ -91,7 +91,7 @@ function Message({ message, isSent, showAvatar }) {
           <span className="text-[10px] text-gray-400">{formatTime(message.createdAt)}</span>
           {isSent && !message.deleted && (
             <span className="text-[10px] text-gray-300">
-              {message.readBy?.length > 1 ? '✓✓' : '✓'}
+              {message.pending ? '...' : (message.readBy?.length > 1 ? '✓✓' : '✓')}
             </span>
           )}
         </div>

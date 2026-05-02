@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore, useChatStore } from '../stores';
 import socketService from '../services/socket';
@@ -6,6 +6,7 @@ import Sidebar from '../components/Sidebar';
 import ChatArea from '../components/ChatArea';
 import UserProfile from '../components/UserProfile';
 import NewChat from '../components/NewChat';
+import { toast } from 'react-toastify';
 
 function Chat() {
   const navigate = useNavigate();
@@ -15,6 +16,8 @@ function Chat() {
     currentConversation,
     setCurrentConversation,
     addMessage,
+    confirmMessage,
+    removeMessage,
     updateMessage,
     deleteMessage,
     setTyping,
@@ -23,67 +26,71 @@ function Chat() {
     removeOnlineUser,
     setOnlineUsers,
     markAsRead,
-    markMessageRead,
-    upsertConversation,
+    updateUserEverywhere,
   } = useChatStore();
 
   const [showProfile, setShowProfile] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
   const currentConversationRef = useRef(currentConversation);
-
-  const getId = (value) => {
-    if (!value) return '';
-    if (value._id) return value._id.toString();
-    return value.toString();
-  };
+  const userRef = useRef(user);
+  const readTimersRef = useRef({});
 
   useEffect(() => {
     currentConversationRef.current = currentConversation;
   }, [currentConversation]);
 
   useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
+  useEffect(() => {
     fetchConversations();
 
+    const scheduleMarkAsRead = (conversationId) => {
+      if (!conversationId) return;
+      clearTimeout(readTimersRef.current[conversationId]);
+      readTimersRef.current[conversationId] = setTimeout(() => {
+        markAsRead(conversationId);
+      }, 350);
+    };
+
     const handleNewMessage = ({ message, conversationId, conversation }) => {
-      const targetConversationId = getId(conversationId || message?.conversationId || conversation?._id);
-      const activeConversationId = getId(currentConversationRef.current?._id);
+      addMessage(message, conversation);
 
-      if (conversation) {
-        upsertConversation(conversation);
-      } else {
-        fetchConversations();
-      }
+      const activeConversationId = currentConversationRef.current?._id;
+      const currentUserId = userRef.current?._id;
+      const senderId = message?.sender?._id || message?.sender;
 
-      // Add the message only when it belongs to the currently opened conversation.
-      // Otherwise, keep it out of the open chat and update only the sidebar/unread count.
-      if (activeConversationId && targetConversationId === activeConversationId) {
-        addMessage(message);
-        markAsRead(targetConversationId);
+      if (activeConversationId === conversationId && senderId !== currentUserId) {
+        scheduleMarkAsRead(conversationId);
       }
     };
 
     const handleMessageSent = ({ message, conversationId, conversation }) => {
-      const targetConversationId = getId(conversationId || message?.conversationId || conversation?._id);
-      const activeConversationId = getId(currentConversationRef.current?._id);
-
-      if (conversation) {
-        upsertConversation(conversation);
+      if (message?.clientId) {
+        confirmMessage(message.clientId, message, conversation);
       } else {
-        fetchConversations();
+        addMessage(message, conversation);
       }
 
-      if (activeConversationId && targetConversationId === activeConversationId) {
-        addMessage(message);
+      if (currentConversationRef.current?._id === conversationId) {
+        scheduleMarkAsRead(conversationId);
       }
+    };
+
+    const handleSocketError = ({ message, clientId }) => {
+      if (clientId) removeMessage(clientId);
+      if (message) toast.error(message);
     };
 
     const handleMessageRead = ({ messageId, userId }) => {
-      markMessageRead(messageId, userId);
+      updateMessage(messageId, (message) => ({
+        readBy: [...(message.readBy || []), { user: userId, readAt: new Date() }],
+      }));
     };
 
-    const handleMessageDeleted = ({ messageId, conversationId }) => {
+    const handleMessageDeleted = ({ messageId }) => {
       deleteMessage(messageId);
-      fetchConversations();
     };
 
     const handleReactionAdded = ({ message }) => {
@@ -91,7 +98,7 @@ function Chat() {
     };
 
     const handleUserTyping = ({ conversationId, userId, username }) => {
-      if (getId(currentConversationRef.current?._id) === getId(conversationId)) {
+      if (currentConversationRef.current?._id === conversationId) {
         setTyping(conversationId, userId, username);
       }
     };
@@ -100,28 +107,14 @@ function Chat() {
       clearTyping(conversationId, userId);
     };
 
-    const handleUserOnline = ({ userId }) => {
-      addOnlineUser(userId);
-    };
-
-    const handleUserOffline = ({ userId }) => {
-      removeOnlineUser(userId);
-    };
-
-    const handleMessagesRead = ({ conversationId, userId }) => {
-      // Update the open conversation read status locally when possible.
-      if (getId(currentConversationRef.current?._id) === getId(conversationId)) {
-        markMessageRead(null, userId);
-      }
-      fetchConversations();
-    };
-
-    const handleOnlineUsersList = ({ users }) => {
-      setOnlineUsers(users);
-    };
+    const handleUserOnline = ({ userId }) => addOnlineUser(userId);
+    const handleUserOffline = ({ userId }) => removeOnlineUser(userId);
+    const handleOnlineUsersList = ({ users }) => setOnlineUsers(users);
+    const handleUserProfileUpdated = ({ user: updatedUser }) => updateUserEverywhere(updatedUser);
 
     socketService.on('newMessage', handleNewMessage);
     socketService.on('messageSent', handleMessageSent);
+    socketService.on('error', handleSocketError);
     socketService.on('messageRead', handleMessageRead);
     socketService.on('messageDeleted', handleMessageDeleted);
     socketService.on('reactionAdded', handleReactionAdded);
@@ -129,14 +122,16 @@ function Chat() {
     socketService.on('userStopTyping', handleUserStopTyping);
     socketService.on('userOnline', handleUserOnline);
     socketService.on('userOffline', handleUserOffline);
-    socketService.on('messagesRead', handleMessagesRead);
     socketService.on('onlineUsersList', handleOnlineUsersList);
+    socketService.on('userProfileUpdated', handleUserProfileUpdated);
 
     socketService.getOnlineUsers();
 
     return () => {
+      Object.values(readTimersRef.current).forEach(clearTimeout);
       socketService.off('newMessage', handleNewMessage);
       socketService.off('messageSent', handleMessageSent);
+      socketService.off('error', handleSocketError);
       socketService.off('messageRead', handleMessageRead);
       socketService.off('messageDeleted', handleMessageDeleted);
       socketService.off('reactionAdded', handleReactionAdded);
@@ -144,23 +139,10 @@ function Chat() {
       socketService.off('userStopTyping', handleUserStopTyping);
       socketService.off('userOnline', handleUserOnline);
       socketService.off('userOffline', handleUserOffline);
-      socketService.off('messagesRead', handleMessagesRead);
       socketService.off('onlineUsersList', handleOnlineUsersList);
+      socketService.off('userProfileUpdated', handleUserProfileUpdated);
     };
-  }, [
-    fetchConversations,
-    addMessage,
-    updateMessage,
-    deleteMessage,
-    setTyping,
-    clearTyping,
-    addOnlineUser,
-    removeOnlineUser,
-    setOnlineUsers,
-    markAsRead,
-    markMessageRead,
-    upsertConversation,
-  ]);
+  }, []);
 
   const handleLogout = async () => {
     await logout();
@@ -171,21 +153,15 @@ function Chat() {
     setCurrentConversation(conversation);
   };
 
-  const handleNewChat = () => {
-    setShowNewChat(true);
-  };
-
   return (
     <div className="h-screen flex bg-dark-300">
-      {/* Sidebar */}
       <Sidebar
-        onNewChat={handleNewChat}
+        onNewChat={() => setShowNewChat(true)}
         onProfile={() => setShowProfile(true)}
         onLogout={handleLogout}
         onConversationSelect={handleConversationSelect}
       />
 
-      {/* Chat Area */}
       {currentConversation ? (
         <ChatArea />
       ) : (
@@ -202,12 +178,10 @@ function Chat() {
         </div>
       )}
 
-      {/* Profile Modal */}
       {showProfile && (
         <UserProfile onClose={() => setShowProfile(false)} />
       )}
 
-      {/* New Chat Modal */}
       {showNewChat && (
         <NewChat onClose={() => setShowNewChat(false)} />
       )}

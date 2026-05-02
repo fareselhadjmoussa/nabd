@@ -1,25 +1,41 @@
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
-const { emitToConversationParticipants } = require('../socket/handler');
 
-const toIdString = (value) => {
-  if (!value) return '';
-  if (value._id) return value._id.toString();
-  return value.toString();
+const buildMessageForClient = (message, clientId) => {
+  const messageObject = typeof message.toObject === 'function'
+    ? message.toObject({ virtuals: true })
+    : { ...message };
+
+  if (clientId) messageObject.clientId = clientId;
+  return messageObject;
 };
 
-const getPopulatedConversation = async (conversationId) => {
-  return Conversation.findById(conversationId)
-    .populate('participants', 'username avatar status')
-    .populate({
-      path: 'lastMessage',
-      populate: { path: 'sender', select: 'username avatar' },
-    });
-};
+const getPopulatedConversation = async (conversationId) => Conversation.findById(conversationId)
+  .populate('participants', 'username avatar status lastSeen')
+  .populate({
+    path: 'lastMessage',
+    populate: { path: 'sender', select: 'username avatar' },
+  });
 
-const emitToParticipants = (req, conversation, eventName, payload) => {
-  const io = req.app?.get('io');
-  emitToConversationParticipants(conversation, eventName, payload, io);
+const emitMessageToParticipants = async (req, conversation, message, clientId) => {
+  const io = req.app.get('io');
+  if (!io) return null;
+
+  const populatedConversation = await getPopulatedConversation(conversation._id);
+  if (!populatedConversation) return null;
+
+  const payload = {
+    message: buildMessageForClient(message, clientId),
+    conversationId: conversation._id.toString(),
+    conversation: populatedConversation,
+  };
+
+  const participantRooms = populatedConversation.participants.map((participant) => (
+    `user:${participant._id.toString()}`
+  ));
+
+  io.to([`conversation:${conversation._id}`, ...participantRooms]).emit('newMessage', payload);
+  return payload;
 };
 
 /**
@@ -32,7 +48,6 @@ const getMessages = async (req, res) => {
     const { page = 1, limit = 50 } = req.query;
     const userId = req.userId;
 
-    // Verify user is part of conversation
     const conversation = await Conversation.findOne({
       _id: conversationId,
       participants: userId,
@@ -45,6 +60,9 @@ const getMessages = async (req, res) => {
       });
     }
 
+    const safeLimit = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 100);
+    const safePage = Math.max(parseInt(page, 10) || 1, 1);
+
     const messages = await Message.find({
       conversationId,
       deleted: false,
@@ -52,8 +70,9 @@ const getMessages = async (req, res) => {
       .populate('sender', 'username avatar')
       .populate('replyTo', 'content sender')
       .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .skip((safePage - 1) * safeLimit)
+      .limit(safeLimit)
+      .lean();
 
     const total = await Message.countDocuments({
       conversationId,
@@ -65,10 +84,10 @@ const getMessages = async (req, res) => {
       data: {
         messages: messages.reverse(),
         pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
+          page: safePage,
+          limit: safeLimit,
           total,
-          pages: Math.ceil(total / limit),
+          pages: Math.ceil(total / safeLimit),
         },
       },
     });
@@ -87,24 +106,30 @@ const getMessages = async (req, res) => {
  */
 const sendMessage = async (req, res) => {
   try {
-    const { conversationId, content = '', type = 'text', mediaUrl = '', replyTo } = req.body;
+    const {
+      conversationId,
+      content = '',
+      type = 'text',
+      mediaUrl = '',
+      replyTo,
+      clientId,
+    } = req.body;
     const userId = req.userId;
 
     if (!conversationId) {
       return res.status(400).json({
         success: false,
-        message: 'المحادثة غير موجودة',
+        message: 'المحادثة مطلوبة',
       });
     }
 
-    if (type === 'text' && !content.trim()) {
+    if (type === 'text' && !String(content).trim()) {
       return res.status(400).json({
         success: false,
         message: 'لا يمكن إرسال رسالة فارغة',
       });
     }
 
-    // Verify user is part of conversation
     const conversation = await Conversation.findOne({
       _id: conversationId,
       participants: userId,
@@ -117,51 +142,45 @@ const sendMessage = async (req, res) => {
       });
     }
 
-    // Create message
     const message = new Message({
       conversationId,
       sender: userId,
       type,
-      content: type === 'text' ? content.trim() : '',
+      content: type === 'text' ? String(content).trim() : '',
       mediaUrl: mediaUrl || '',
       replyTo,
     });
 
     await message.save();
+    await message.populate('sender', 'username avatar');
 
-    // Update conversation
     conversation.lastMessage = message._id;
-    conversation.lastMessageText = type === 'text' ? content.trim().substring(0, 100) : `[${type}]`;
+    conversation.lastMessageText = type === 'text'
+      ? String(content).trim().substring(0, 100)
+      : `[${type}]`;
     conversation.lastMessageTime = new Date();
 
-    // Update unread count for other participants
-    conversation.participants.forEach((participant) => {
-      const participantId = toIdString(participant);
-      if (participantId && participantId !== userId) {
-        const currentCount = conversation.unreadCount?.get(participantId) || 0;
-        conversation.unreadCount.set(participantId, currentCount + 1);
+    conversation.participants.forEach((participantId) => {
+      if (!participantId.equals(userId)) {
+        const key = participantId.toString();
+        const currentCount = conversation.unreadCount.get(key) || 0;
+        conversation.unreadCount.set(key, currentCount + 1);
       }
     });
 
     await conversation.save();
 
-    // Populate message and conversation before returning/broadcasting
-    await message.populate('sender', 'username avatar');
-    const populatedConversation = await getPopulatedConversation(conversation._id);
-
-    const payload = {
-      message,
-      conversationId: toIdString(conversation._id),
-      conversation: populatedConversation,
-    };
-
-    // Broadcast API-sent messages too, so the recipient receives them in real time.
-    emitToParticipants(req, populatedConversation, 'newMessage', payload);
+    const socketPayload = await emitMessageToParticipants(req, conversation, message, clientId);
+    const populatedConversation = socketPayload?.conversation || await getPopulatedConversation(conversation._id);
+    const messageForClient = socketPayload?.message || buildMessageForClient(message, clientId);
 
     res.status(201).json({
       success: true,
       message: 'تم إرسال الرسالة',
-      data: payload,
+      data: {
+        message: messageForClient,
+        conversation: populatedConversation,
+      },
     });
   } catch (error) {
     console.error('SendMessage error:', error);
@@ -190,31 +209,10 @@ const markAsRead = async (req, res) => {
       });
     }
 
-    const conversation = await Conversation.findOne({
-      _id: message.conversationId,
-      participants: userId,
-    });
-
-    if (!conversation) {
-      return res.status(403).json({
-        success: false,
-        message: 'غير مصرح',
-      });
-    }
-
-    // Add user to readBy if not already there
     if (!message.readBy.some((r) => r.user.equals(userId))) {
       message.readBy.push({ user: userId, readAt: new Date() });
       await message.save();
     }
-
-    const payload = {
-      conversationId: toIdString(message.conversationId),
-      messageId: toIdString(message._id),
-      userId: toIdString(userId),
-    };
-
-    emitToParticipants(req, conversation, 'messageRead', payload);
 
     res.json({
       success: true,
@@ -247,23 +245,10 @@ const deleteMessage = async (req, res) => {
       });
     }
 
-    // Only sender can delete
     if (!message.sender.equals(userId)) {
       return res.status(403).json({
         success: false,
         message: 'غير مصرح بحذف هذه الرسالة',
-      });
-    }
-
-    const conversation = await Conversation.findOne({
-      _id: message.conversationId,
-      participants: userId,
-    });
-
-    if (!conversation) {
-      return res.status(403).json({
-        success: false,
-        message: 'غير مصرح',
       });
     }
 
@@ -273,10 +258,13 @@ const deleteMessage = async (req, res) => {
     message.mediaUrl = '';
     await message.save();
 
-    emitToParticipants(req, conversation, 'messageDeleted', {
-      messageId: toIdString(message._id),
-      conversationId: toIdString(message.conversationId),
-    });
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`conversation:${message.conversationId}`).emit('messageDeleted', {
+        messageId: message._id,
+        conversationId: message.conversationId,
+      });
+    }
 
     res.json({
       success: true,
@@ -310,32 +298,14 @@ const addReaction = async (req, res) => {
       });
     }
 
-    const conversation = await Conversation.findOne({
-      _id: message.conversationId,
-      participants: userId,
-    });
-
-    if (!conversation) {
-      return res.status(403).json({
-        success: false,
-        message: 'غير مصرح',
-      });
-    }
-
-    // Remove existing reaction from this user
-    message.reactions = message.reactions.filter(
-      (r) => !r.user.equals(userId)
-    );
-
-    // Add new reaction
+    message.reactions = message.reactions.filter((r) => !r.user.equals(userId));
     message.reactions.push({ user: userId, emoji });
     await message.save();
-    await message.populate('sender', 'username avatar');
 
-    emitToParticipants(req, conversation, 'reactionAdded', {
-      message,
-      conversationId: toIdString(message.conversationId),
-    });
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`conversation:${message.conversationId}`).emit('reactionAdded', { message });
+    }
 
     res.json({
       success: true,

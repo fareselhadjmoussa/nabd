@@ -44,37 +44,33 @@ class SocketService {
     this.listeners = new Map();
   }
 
-  /**
-   * Connect to socket server
-   * @param {string} token - JWT token for authentication
-   */
   connect(token) {
     if (!token) {
       console.warn('Socket connection skipped: missing token');
       return;
     }
 
-    if (this.socket?.connected) {
-      console.log('Socket already connected');
-      return;
-    }
+    if (this.socket?.connected) return;
 
     if (this.socket) {
       this.socket.disconnect();
+      this.socket = null;
     }
 
     this.socket = io(SOCKET_URL, {
       auth: { token },
       transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 700,
+      reconnectionDelayMax: 3500,
       timeout: 10000,
     });
 
     this.socket.on('connect', () => {
       console.log('🔌 Socket connected');
       this.connected = true;
+      this.getOnlineUsers();
     });
 
     this.socket.on('disconnect', () => {
@@ -87,31 +83,25 @@ class SocketService {
       this.connected = false;
     });
 
-    // Re-emit stored listeners
+    // Attach existing listeners immediately. Previously listeners were only
+    // attached when the socket was already connected, which made some users
+    // miss newMessage events while the connection was still opening.
     this.listeners.forEach((callbacks, event) => {
       callbacks.forEach((callback) => {
+        this.socket.off(event, callback);
         this.socket.on(event, callback);
       });
     });
   }
 
-  /**
-   * Disconnect from socket server
-   */
   disconnect() {
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;
-      this.connected = false;
-      this.listeners.clear();
     }
+    this.connected = false;
   }
 
-  /**
-   * Emit event to server
-   * @param {string} event - Event name
-   * @param {any} data - Event data
-   */
   emit(event, data) {
     if (this.socket?.connected) {
       this.socket.emit(event, data);
@@ -122,138 +112,82 @@ class SocketService {
     return false;
   }
 
-  /**
-   * Listen to event from server
-   * @param {string} event - Event name
-   * @param {function} callback - Callback function
-   */
   on(event, callback) {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, []);
     }
 
     const callbacks = this.listeners.get(event);
-    if (!callbacks.includes(callback)) {
-      callbacks.push(callback);
-    }
+    if (!callbacks.includes(callback)) callbacks.push(callback);
 
-    if (this.socket?.connected) {
+    // Attach to the socket even if it is still connecting.
+    if (this.socket) {
+      this.socket.off(event, callback);
       this.socket.on(event, callback);
     }
   }
 
-  /**
-   * Remove event listener
-   * @param {string} event - Event name
-   * @param {function} callback - Callback function to remove
-   */
   off(event, callback) {
     if (this.socket) {
-      this.socket.off(event, callback);
+      if (callback) this.socket.off(event, callback);
+      else this.socket.off(event);
     }
 
     if (!this.listeners.has(event)) return;
 
     if (callback) {
-      this.listeners.set(
-        event,
-        this.listeners.get(event).filter((savedCallback) => savedCallback !== callback)
-      );
+      const filtered = this.listeners.get(event).filter((savedCallback) => savedCallback !== callback);
+      if (filtered.length) this.listeners.set(event, filtered);
+      else this.listeners.delete(event);
     } else {
       this.listeners.delete(event);
     }
   }
 
-  /**
-   * Join conversation room
-   * @param {string} conversationId
-   */
   joinConversation(conversationId) {
-    this.emit('joinConversation', { conversationId });
+    return this.emit('joinConversation', { conversationId });
   }
 
-  /**
-   * Leave conversation room
-   * @param {string} conversationId
-   */
   leaveConversation(conversationId) {
-    this.emit('leaveConversation', { conversationId });
+    return this.emit('leaveConversation', { conversationId });
   }
 
-  /**
-   * Send message
-   * @param {object} data - Message data
-   */
   sendMessage(data) {
-    this.emit('sendMessage', data);
+    return this.emit('sendMessage', data);
   }
 
-  /**
-   * Start typing
-   * @param {string} conversationId
-   */
   startTyping(conversationId) {
-    this.emit('typingStart', { conversationId });
+    return this.emit('typingStart', { conversationId });
   }
 
-  /**
-   * Stop typing
-   * @param {string} conversationId
-   */
   stopTyping(conversationId) {
-    this.emit('typingStop', { conversationId });
+    return this.emit('typingStop', { conversationId });
   }
 
-  /**
-   * Mark message as read
-   * @param {string} conversationId
-   * @param {string} messageId
-   */
   markRead(conversationId, messageId) {
-    this.emit('markRead', { conversationId, messageId });
+    return this.emit('markRead', { conversationId, messageId });
   }
 
-  /**
-   * Add reaction to message
-   * @param {string} messageId
-   * @param {string} emoji
-   */
   addReaction(messageId, emoji) {
-    this.emit('addReaction', { messageId, emoji });
+    return this.emit('addReaction', { messageId, emoji });
   }
 
-  /**
-   * Delete message
-   * @param {string} messageId
-   */
   deleteMessage(messageId) {
-    this.emit('deleteMessage', { messageId });
+    return this.emit('deleteMessage', { messageId });
   }
 
-  /**
-   * Send direct message
-   * @param {string} recipientId
-   * @param {string} content
-   */
   directMessage(recipientId, content) {
-    this.emit('directMessage', { recipientId, content });
+    return this.emit('directMessage', { recipientId, content });
   }
 
-  /**
-   * Get online users
-   */
   getOnlineUsers() {
-    this.emit('getOnlineUsers');
+    return this.emit('getOnlineUsers');
   }
 
-  /**
-   * Check if connected
-   */
   isConnected() {
-    return this.connected;
+    return Boolean(this.socket?.connected && this.connected);
   }
 }
 
-// Export singleton instance
 const socketService = new SocketService();
 export default socketService;
