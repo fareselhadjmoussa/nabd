@@ -1,12 +1,11 @@
 import { useEffect, useState, useRef } from 'react';
-import { Routes, Route, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore, useChatStore } from '../stores';
 import socketService from '../services/socket';
 import Sidebar from '../components/Sidebar';
 import ChatArea from '../components/ChatArea';
 import UserProfile from '../components/UserProfile';
 import NewChat from '../components/NewChat';
-import { toast } from 'react-toastify';
 
 function Chat() {
   const navigate = useNavigate();
@@ -24,101 +23,144 @@ function Chat() {
     removeOnlineUser,
     setOnlineUsers,
     markAsRead,
+    markMessageRead,
+    upsertConversation,
   } = useChatStore();
 
   const [showProfile, setShowProfile] = useState(false);
   const [showNewChat, setShowNewChat] = useState(false);
+  const currentConversationRef = useRef(currentConversation);
+
+  const getId = (value) => {
+    if (!value) return '';
+    if (value._id) return value._id.toString();
+    return value.toString();
+  };
 
   useEffect(() => {
-    // Fetch conversations on mount
+    currentConversationRef.current = currentConversation;
+  }, [currentConversation]);
+
+  useEffect(() => {
     fetchConversations();
 
-    // Set up socket listeners
-    setupSocketListeners();
+    const handleNewMessage = ({ message, conversationId, conversation }) => {
+      const targetConversationId = getId(conversationId || message?.conversationId || conversation?._id);
+      const activeConversationId = getId(currentConversationRef.current?._id);
 
-    // Update status when leaving
-    return () => {
-      socketService.off('newMessage');
-      socketService.off('messageSent');
-      socketService.off('messageRead');
-      socketService.off('messageDeleted');
-      socketService.off('reactionAdded');
-      socketService.off('userTyping');
-      socketService.off('userStopTyping');
-      socketService.off('userOnline');
-      socketService.off('userOffline');
-      socketService.off('messagesRead');
-    };
-  }, []);
-
-  const setupSocketListeners = () => {
-    // New message
-    socketService.on('newMessage', ({ message, conversationId }) => {
-      addMessage(message);
-
-      // If this is the current conversation, mark as read
-      if (currentConversation?._id === conversationId) {
-        markAsRead(conversationId);
+      if (conversation) {
+        upsertConversation(conversation);
+      } else {
+        fetchConversations();
       }
-    });
 
-    // Message sent confirmation
-    socketService.on('messageSent', ({ message }) => {
-      // Message already added via newMessage
-    });
+      // Add the message only when it belongs to the currently opened conversation.
+      // Otherwise, keep it out of the open chat and update only the sidebar/unread count.
+      if (activeConversationId && targetConversationId === activeConversationId) {
+        addMessage(message);
+        markAsRead(targetConversationId);
+      }
+    };
 
-    // Message read
-    socketService.on('messageRead', ({ messageId, userId }) => {
-      updateMessage(messageId, {
-        readBy: [...(updateMessage._readBy || []), { user: userId, readAt: new Date() }],
-      });
-    });
+    const handleMessageSent = ({ message, conversationId, conversation }) => {
+      const targetConversationId = getId(conversationId || message?.conversationId || conversation?._id);
+      const activeConversationId = getId(currentConversationRef.current?._id);
 
-    // Message deleted
-    socketService.on('messageDeleted', ({ messageId }) => {
+      if (conversation) {
+        upsertConversation(conversation);
+      } else {
+        fetchConversations();
+      }
+
+      if (activeConversationId && targetConversationId === activeConversationId) {
+        addMessage(message);
+      }
+    };
+
+    const handleMessageRead = ({ messageId, userId }) => {
+      markMessageRead(messageId, userId);
+    };
+
+    const handleMessageDeleted = ({ messageId, conversationId }) => {
       deleteMessage(messageId);
-    });
+      fetchConversations();
+    };
 
-    // Reaction added
-    socketService.on('reactionAdded', ({ message }) => {
+    const handleReactionAdded = ({ message }) => {
       updateMessage(message._id, { reactions: message.reactions });
-    });
+    };
 
-    // User typing
-    socketService.on('userTyping', ({ conversationId, userId, username }) => {
-      if (currentConversation?._id === conversationId) {
+    const handleUserTyping = ({ conversationId, userId, username }) => {
+      if (getId(currentConversationRef.current?._id) === getId(conversationId)) {
         setTyping(conversationId, userId, username);
       }
-    });
+    };
 
-    // User stop typing
-    socketService.on('userStopTyping', ({ conversationId, userId }) => {
+    const handleUserStopTyping = ({ conversationId, userId }) => {
       clearTyping(conversationId, userId);
-    });
+    };
 
-    // User online
-    socketService.on('userOnline', ({ userId }) => {
+    const handleUserOnline = ({ userId }) => {
       addOnlineUser(userId);
-    });
+    };
 
-    // User offline
-    socketService.on('userOffline', ({ userId }) => {
+    const handleUserOffline = ({ userId }) => {
       removeOnlineUser(userId);
-    });
+    };
 
-    // Messages read
-    socketService.on('messagesRead', ({ conversationId, userId }) => {
-      // Update all messages as read
-    });
+    const handleMessagesRead = ({ conversationId, userId }) => {
+      // Update the open conversation read status locally when possible.
+      if (getId(currentConversationRef.current?._id) === getId(conversationId)) {
+        markMessageRead(null, userId);
+      }
+      fetchConversations();
+    };
 
-    // Online users list
-    socketService.on('onlineUsersList', ({ users }) => {
+    const handleOnlineUsersList = ({ users }) => {
       setOnlineUsers(users);
-    });
+    };
 
-    // Request online users
+    socketService.on('newMessage', handleNewMessage);
+    socketService.on('messageSent', handleMessageSent);
+    socketService.on('messageRead', handleMessageRead);
+    socketService.on('messageDeleted', handleMessageDeleted);
+    socketService.on('reactionAdded', handleReactionAdded);
+    socketService.on('userTyping', handleUserTyping);
+    socketService.on('userStopTyping', handleUserStopTyping);
+    socketService.on('userOnline', handleUserOnline);
+    socketService.on('userOffline', handleUserOffline);
+    socketService.on('messagesRead', handleMessagesRead);
+    socketService.on('onlineUsersList', handleOnlineUsersList);
+
     socketService.getOnlineUsers();
-  };
+
+    return () => {
+      socketService.off('newMessage', handleNewMessage);
+      socketService.off('messageSent', handleMessageSent);
+      socketService.off('messageRead', handleMessageRead);
+      socketService.off('messageDeleted', handleMessageDeleted);
+      socketService.off('reactionAdded', handleReactionAdded);
+      socketService.off('userTyping', handleUserTyping);
+      socketService.off('userStopTyping', handleUserStopTyping);
+      socketService.off('userOnline', handleUserOnline);
+      socketService.off('userOffline', handleUserOffline);
+      socketService.off('messagesRead', handleMessagesRead);
+      socketService.off('onlineUsersList', handleOnlineUsersList);
+    };
+  }, [
+    fetchConversations,
+    addMessage,
+    updateMessage,
+    deleteMessage,
+    setTyping,
+    clearTyping,
+    addOnlineUser,
+    removeOnlineUser,
+    setOnlineUsers,
+    markAsRead,
+    markMessageRead,
+    upsertConversation,
+  ]);
 
   const handleLogout = async () => {
     await logout();

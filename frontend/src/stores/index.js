@@ -2,6 +2,29 @@ import { create } from 'zustand';
 import { authAPI, usersAPI, conversationsAPI, messagesAPI, uploadAPI } from '../services/api';
 import socketService from '../services/socket';
 
+const getId = (value) => {
+  if (!value) return '';
+  if (value._id) return value._id.toString();
+  return value.toString();
+};
+
+const getConversationTime = (conversation) => {
+  const date = conversation?.lastMessageTime || conversation?.updatedAt || conversation?.createdAt;
+  return date ? new Date(date).getTime() : 0;
+};
+
+const sortConversations = (conversations) => {
+  return [...conversations].sort((a, b) => getConversationTime(b) - getConversationTime(a));
+};
+
+const normalizeUnreadCount = (conversation) => {
+  if (!conversation) return conversation;
+
+  // Mongo Map may arrive as object. Keep it unchanged for backend compatibility,
+  // but ensure Sidebar can still receive a numeric unreadCount when backend sends one.
+  return conversation;
+};
+
 // Auth Store
 export const useAuthStore = create((set, get) => ({
   user: null,
@@ -62,7 +85,10 @@ export const useAuthStore = create((set, get) => ({
     localStorage.removeItem('accessToken');
     socketService.disconnect();
     set({ user: null, isAuthenticated: false });
+    get().clearAuthLoading?.();
   },
+
+  clearAuthLoading: () => set({ isLoading: false }),
 
   // Fetch current user
   fetchUser: async () => {
@@ -127,11 +153,35 @@ export const useChatStore = create((set, get) => ({
   fetchConversations: async () => {
     try {
       const response = await conversationsAPI.getConversations();
-      const conversations = response.data.data.conversations;
-      set({ conversations });
+      const conversations = response.data.data.conversations || [];
+      set({ conversations: sortConversations(conversations.map(normalizeUnreadCount)) });
+      return conversations;
     } catch (error) {
       console.error('FetchConversations error:', error);
+      return [];
     }
+  },
+
+  // Insert or update a conversation in the sidebar
+  upsertConversation: (conversation) => {
+    if (!conversation?._id) return;
+
+    set((state) => {
+      const normalized = normalizeUnreadCount(conversation);
+      const exists = state.conversations.some((item) => item._id === normalized._id);
+      const conversations = exists
+        ? state.conversations.map((item) => (item._id === normalized._id ? { ...item, ...normalized } : item))
+        : [normalized, ...state.conversations];
+
+      const currentConversation = state.currentConversation?._id === normalized._id
+        ? { ...state.currentConversation, ...normalized }
+        : state.currentConversation;
+
+      return {
+        conversations: sortConversations(conversations),
+        currentConversation,
+      };
+    });
   },
 
   // Set current conversation
@@ -144,13 +194,7 @@ export const useChatStore = create((set, get) => ({
     try {
       const response = await conversationsAPI.createConversation(data);
       const conversation = response.data.data.conversation;
-      const { conversations } = get();
-
-      // Add to beginning if not exists
-      if (!conversations.find((c) => c._id === conversation._id)) {
-        set({ conversations: [conversation, ...conversations] });
-      }
-
+      get().upsertConversation(conversation);
       return { success: true, conversation };
     } catch (error) {
       return {
@@ -169,7 +213,11 @@ export const useChatStore = create((set, get) => ({
       if (page === 1) {
         set({ messages });
       } else {
-        set((state) => ({ messages: [...messages, ...state.messages] }));
+        set((state) => {
+          const existingIds = new Set(state.messages.map((message) => message._id));
+          const newMessages = messages.filter((message) => !existingIds.has(message._id));
+          return { messages: [...newMessages, ...state.messages] };
+        });
       }
 
       return messages;
@@ -179,36 +227,86 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
-  // Add message
+  // Add message without duplicates
   addMessage: (message) => {
-    set((state) => ({
-      messages: [...state.messages, message],
-    }));
+    if (!message?._id) return;
+
+    set((state) => {
+      if (state.messages.some((item) => item._id === message._id)) {
+        return state;
+      }
+
+      const messages = [...state.messages, message].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+
+      return { messages };
+    });
   },
 
   // Update message
   updateMessage: (messageId, updates) => {
+    if (!messageId) return;
+
     set((state) => ({
-      messages: state.messages.map((m) =>
-        m._id === messageId ? { ...m, ...updates } : m
+      messages: state.messages.map((message) =>
+        message._id === messageId ? { ...message, ...updates } : message
       ),
+    }));
+  },
+
+  // Mark one message, or all current messages, as read by a user
+  markMessageRead: (messageId, userId) => {
+    if (!userId) return;
+
+    set((state) => ({
+      messages: state.messages.map((message) => {
+        if (messageId && message._id !== messageId) return message;
+
+        const readBy = Array.isArray(message.readBy) ? message.readBy : [];
+        const alreadyRead = readBy.some((entry) => getId(entry.user || entry) === getId(userId));
+        if (alreadyRead) return message;
+
+        return {
+          ...message,
+          readBy: [...readBy, { user: userId, readAt: new Date().toISOString() }],
+        };
+      }),
     }));
   },
 
   // Delete message locally
   deleteMessage: (messageId) => {
+    if (!messageId) return;
+
     set((state) => ({
-      messages: state.messages.map((m) =>
-        m._id === messageId ? { ...m, deleted: true, content: 'تم حذف هذه الرسالة' } : m
+      messages: state.messages.map((message) =>
+        message._id === messageId
+          ? { ...message, deleted: true, content: 'تم حذف هذه الرسالة', mediaUrl: '' }
+          : message
       ),
     }));
   },
 
-  // Send message via API
+  // Send message via API, used as a fallback when Socket is not connected
   sendMessage: async (data) => {
     try {
       const response = await messagesAPI.sendMessage(data);
-      return { success: true, message: response.data.data.message };
+      const payload = response.data.data;
+
+      if (payload?.conversation) {
+        get().upsertConversation(payload.conversation);
+      }
+
+      if (payload?.message) {
+        const currentConversationId = getId(get().currentConversation?._id);
+        const messageConversationId = getId(payload.conversationId || payload.message.conversationId);
+        if (currentConversationId && currentConversationId === messageConversationId) {
+          get().addMessage(payload.message);
+        }
+      }
+
+      return { success: true, message: payload.message, conversation: payload.conversation };
     } catch (error) {
       return {
         success: false,
@@ -228,6 +326,11 @@ export const useChatStore = create((set, get) => ({
       } else if (type === 'audio') {
         response = await uploadAPI.uploadAudio(file);
       }
+
+      if (!response) {
+        return { success: false, message: 'نوع الملف غير مدعوم' };
+      }
+
       return { success: true, url: response.data.data.url };
     } catch (error) {
       return {
@@ -237,13 +340,13 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
-  // Mark as read
+  // Mark conversation as read
   markAsRead: async (conversationId) => {
     try {
       await conversationsAPI.markAsRead(conversationId);
       set((state) => ({
-        conversations: state.conversations.map((c) =>
-          c._id === conversationId ? { ...c, unreadCount: 0 } : c
+        conversations: state.conversations.map((conversation) =>
+          conversation._id === conversationId ? { ...conversation, unreadCount: 0 } : conversation
         ),
       }));
     } catch (error) {
@@ -274,33 +377,43 @@ export const useChatStore = create((set, get) => ({
 
   // Set online users
   setOnlineUsers: (users) => {
-    set({ onlineUsers: users });
+    set({ onlineUsers: Array.from(new Set(users || [])) });
   },
 
   // Add online user
   addOnlineUser: (userId) => {
+    if (!userId) return;
+
     set((state) => ({
-      onlineUsers: [...state.onlineUsers, userId],
-      conversations: state.conversations.map((c) =>
-        c.participants?.some((p) => p._id === userId)
-          ? { ...c, participants: c.participants.map((p) =>
-              p._id === userId ? { ...p, status: 'online' } : p
-            )}
-          : c
+      onlineUsers: Array.from(new Set([...state.onlineUsers, userId])),
+      conversations: state.conversations.map((conversation) =>
+        conversation.participants?.some((participant) => getId(participant) === getId(userId))
+          ? {
+              ...conversation,
+              participants: conversation.participants.map((participant) =>
+                getId(participant) === getId(userId) ? { ...participant, status: 'online' } : participant
+              ),
+            }
+          : conversation
       ),
     }));
   },
 
   // Remove online user
   removeOnlineUser: (userId) => {
+    if (!userId) return;
+
     set((state) => ({
-      onlineUsers: state.onlineUsers.filter((id) => id !== userId),
-      conversations: state.conversations.map((c) =>
-        c.participants?.some((p) => p._id === userId)
-          ? { ...c, participants: c.participants.map((p) =>
-              p._id === userId ? { ...p, status: 'offline' } : p
-            )}
-          : c
+      onlineUsers: state.onlineUsers.filter((id) => getId(id) !== getId(userId)),
+      conversations: state.conversations.map((conversation) =>
+        conversation.participants?.some((participant) => getId(participant) === getId(userId))
+          ? {
+              ...conversation,
+              participants: conversation.participants.map((participant) =>
+                getId(participant) === getId(userId) ? { ...participant, status: 'offline' } : participant
+              ),
+            }
+          : conversation
       ),
     }));
   },
@@ -326,31 +439,30 @@ export const useUsersStore = create((set) => ({
   fetchUsers: async (params) => {
     try {
       const response = await usersAPI.getUsers(params);
-      set({ users: response.data.data.users });
+      set({ users: response.data.data.users || [] });
     } catch (error) {
       console.error('FetchUsers error:', error);
     }
   },
 
   // Search users
-searchUsers: async (query) => {
-  try {
-    if (!query || query.trim() === '') {
+  searchUsers: async (query) => {
+    try {
+      if (!query || query.trim() === '') {
+        set({ searchResults: [] });
+        return [];
+      }
+
+      const response = await usersAPI.searchUsers(query.trim());
+      const users = response.data.data.users || [];
+      set({ searchResults: users });
+      return users;
+    } catch (error) {
+      console.error('SearchUsers error:', error);
       set({ searchResults: [] });
-      return;
+      return [];
     }
-
-    const response = await usersAPI.searchUsers(query);
-
-    set({
-      searchResults: response.data.data.users
-    });
-
-  } catch (error) {
-    console.error('SearchUsers error:', error);
-    set({ searchResults: [] });
-  }
-},
+  },
 
   // Clear search
   clearSearch: () => {

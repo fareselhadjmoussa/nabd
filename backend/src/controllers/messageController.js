@@ -1,5 +1,26 @@
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
+const { emitToConversationParticipants } = require('../socket/handler');
+
+const toIdString = (value) => {
+  if (!value) return '';
+  if (value._id) return value._id.toString();
+  return value.toString();
+};
+
+const getPopulatedConversation = async (conversationId) => {
+  return Conversation.findById(conversationId)
+    .populate('participants', 'username avatar status')
+    .populate({
+      path: 'lastMessage',
+      populate: { path: 'sender', select: 'username avatar' },
+    });
+};
+
+const emitToParticipants = (req, conversation, eventName, payload) => {
+  const io = req.app?.get('io');
+  emitToConversationParticipants(conversation, eventName, payload, io);
+};
 
 /**
  * Get messages for a conversation
@@ -66,8 +87,22 @@ const getMessages = async (req, res) => {
  */
 const sendMessage = async (req, res) => {
   try {
-    const { conversationId, content, type = 'text', mediaUrl, replyTo } = req.body;
+    const { conversationId, content = '', type = 'text', mediaUrl = '', replyTo } = req.body;
     const userId = req.userId;
+
+    if (!conversationId) {
+      return res.status(400).json({
+        success: false,
+        message: 'المحادثة غير موجودة',
+      });
+    }
+
+    if (type === 'text' && !content.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'لا يمكن إرسال رسالة فارغة',
+      });
+    }
 
     // Verify user is part of conversation
     const conversation = await Conversation.findOne({
@@ -87,7 +122,7 @@ const sendMessage = async (req, res) => {
       conversationId,
       sender: userId,
       type,
-      content: type === 'text' ? content : '',
+      content: type === 'text' ? content.trim() : '',
       mediaUrl: mediaUrl || '',
       replyTo,
     });
@@ -96,26 +131,37 @@ const sendMessage = async (req, res) => {
 
     // Update conversation
     conversation.lastMessage = message._id;
-    conversation.lastMessageText = type === 'text' ? content.substring(0, 100) : `[${type}]`;
+    conversation.lastMessageText = type === 'text' ? content.trim().substring(0, 100) : `[${type}]`;
     conversation.lastMessageTime = new Date();
 
     // Update unread count for other participants
-    conversation.participants.forEach((p) => {
-      if (!p.equals(userId)) {
-        const currentCount = conversation.unreadCount.get(p.toString()) || 0;
-        conversation.unreadCount.set(p.toString(), currentCount + 1);
+    conversation.participants.forEach((participant) => {
+      const participantId = toIdString(participant);
+      if (participantId && participantId !== userId) {
+        const currentCount = conversation.unreadCount?.get(participantId) || 0;
+        conversation.unreadCount.set(participantId, currentCount + 1);
       }
     });
 
     await conversation.save();
 
-    // Populate message
+    // Populate message and conversation before returning/broadcasting
     await message.populate('sender', 'username avatar');
+    const populatedConversation = await getPopulatedConversation(conversation._id);
+
+    const payload = {
+      message,
+      conversationId: toIdString(conversation._id),
+      conversation: populatedConversation,
+    };
+
+    // Broadcast API-sent messages too, so the recipient receives them in real time.
+    emitToParticipants(req, populatedConversation, 'newMessage', payload);
 
     res.status(201).json({
       success: true,
       message: 'تم إرسال الرسالة',
-      data: { message },
+      data: payload,
     });
   } catch (error) {
     console.error('SendMessage error:', error);
@@ -144,11 +190,31 @@ const markAsRead = async (req, res) => {
       });
     }
 
+    const conversation = await Conversation.findOne({
+      _id: message.conversationId,
+      participants: userId,
+    });
+
+    if (!conversation) {
+      return res.status(403).json({
+        success: false,
+        message: 'غير مصرح',
+      });
+    }
+
     // Add user to readBy if not already there
     if (!message.readBy.some((r) => r.user.equals(userId))) {
       message.readBy.push({ user: userId, readAt: new Date() });
       await message.save();
     }
+
+    const payload = {
+      conversationId: toIdString(message.conversationId),
+      messageId: toIdString(message._id),
+      userId: toIdString(userId),
+    };
+
+    emitToParticipants(req, conversation, 'messageRead', payload);
 
     res.json({
       success: true,
@@ -189,11 +255,28 @@ const deleteMessage = async (req, res) => {
       });
     }
 
+    const conversation = await Conversation.findOne({
+      _id: message.conversationId,
+      participants: userId,
+    });
+
+    if (!conversation) {
+      return res.status(403).json({
+        success: false,
+        message: 'غير مصرح',
+      });
+    }
+
     message.deleted = true;
     message.deletedBy = userId;
     message.content = 'تم حذف هذه الرسالة';
     message.mediaUrl = '';
     await message.save();
+
+    emitToParticipants(req, conversation, 'messageDeleted', {
+      messageId: toIdString(message._id),
+      conversationId: toIdString(message.conversationId),
+    });
 
     res.json({
       success: true,
@@ -227,6 +310,18 @@ const addReaction = async (req, res) => {
       });
     }
 
+    const conversation = await Conversation.findOne({
+      _id: message.conversationId,
+      participants: userId,
+    });
+
+    if (!conversation) {
+      return res.status(403).json({
+        success: false,
+        message: 'غير مصرح',
+      });
+    }
+
     // Remove existing reaction from this user
     message.reactions = message.reactions.filter(
       (r) => !r.user.equals(userId)
@@ -235,6 +330,12 @@ const addReaction = async (req, res) => {
     // Add new reaction
     message.reactions.push({ user: userId, emoji });
     await message.save();
+    await message.populate('sender', 'username avatar');
+
+    emitToParticipants(req, conversation, 'reactionAdded', {
+      message,
+      conversationId: toIdString(message.conversationId),
+    });
 
     res.json({
       success: true,
