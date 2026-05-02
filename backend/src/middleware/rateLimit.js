@@ -22,7 +22,7 @@ const apiLimiter = rateLimit({
  */
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5,
+  max: parseInt(process.env.AUTH_RATE_LIMIT_MAX || '40', 10),
   message: {
     success: false,
     message: 'محاولات كثيرة - يرجى المحاولة بعد 15 دقيقة',

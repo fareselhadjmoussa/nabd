@@ -64,7 +64,7 @@ export const useAuthStore = create((set, get) => ({
     } catch (error) {
       return {
         success: false,
-        message: error.response?.data?.message || 'خطأ في إنشاء الحساب',
+        message: error.response?.data?.message || error.response?.data?.errors?.[0] || 'خطأ في إنشاء الحساب',
       };
     }
   },
@@ -84,7 +84,7 @@ export const useAuthStore = create((set, get) => ({
     } catch (error) {
       return {
         success: false,
-        message: error.response?.data?.message || 'خطأ في تسجيل الدخول',
+        message: error.response?.data?.message || error.response?.data?.errors?.[0] || 'خطأ في تسجيل الدخول',
       };
     }
   },

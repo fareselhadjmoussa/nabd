@@ -20,6 +20,12 @@ const adminRoutes = require('./routes/admin');
 
 // Initialize Express app
 const app = express();
+
+// Render/Vercel/most hosts sit behind a reverse proxy.
+// This is required for express-rate-limit to read the real client IP safely
+// and prevents auth routes from failing behind Render proxies.
+app.set('trust proxy', 1);
+
 const server = http.createServer(app);
 
 const allowedOrigins = config.CORS_ORIGINS.length
@@ -45,15 +51,30 @@ const isDevelopmentOriginAllowed = (origin) => {
   }
 };
 
+const isAllowedVercelPreview = (origin) => {
+  // Optional convenience for Vercel preview deploys. Keep exact domains in
+  // CORS_ORIGINS for production, but this prevents new preview URLs from
+  // breaking login/register while testing.
+  if (process.env.ALLOW_VERCEL_PREVIEWS !== 'true') return false;
+
+  try {
+    const parsed = new URL(origin);
+    return parsed.protocol === 'https:' && parsed.hostname.endsWith('.vercel.app');
+  } catch {
+    return false;
+  }
+};
+
 const corsOrigin = (origin, callback) => {
   // Allow server-to-server tools, curl, Postman, and same-origin requests with no Origin header.
   if (!origin) return callback(null, true);
 
-  if (allowedOrigins.includes(origin) || isDevelopmentOriginAllowed(origin)) {
+  if (allowedOrigins.includes(origin) || isDevelopmentOriginAllowed(origin) || isAllowedVercelPreview(origin)) {
     return callback(null, true);
   }
 
-  return callback(new Error(`Not allowed by CORS: ${origin}`));
+  console.error(`❌ Blocked CORS: ${origin}`);
+  return callback(new Error(`CORS blocked: ${origin}`));
 };
 
 const corsOptions = {

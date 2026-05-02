@@ -57,6 +57,12 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+const isAuthEndpoint = (url = '') => (
+  url.includes('/auth/login')
+  || url.includes('/auth/register')
+  || url.includes('/auth/refresh')
+);
+
 // Response interceptor
 api.interceptors.response.use(
   (response) => response,
@@ -67,12 +73,19 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    // If token expired and we haven't tried to refresh
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    const hasStoredToken = Boolean(localStorage.getItem('accessToken'));
+    const shouldTryRefresh = error.response?.status === 401
+      && !originalRequest._retry
+      && hasStoredToken
+      && !isAuthEndpoint(originalRequest.url || '');
+
+    // Important: do NOT try refresh for /auth/login or /auth/register.
+    // Those endpoints can legitimately return 401/400 and the user should see
+    // the real message such as "البريد الإلكتروني غير مسجل" أو "كلمة المرور غير صحيحة".
+    if (shouldTryRefresh) {
       originalRequest._retry = true;
 
       try {
-        // Try to refresh token
         const response = await axios.post(
           `${API_URL}/auth/refresh`,
           {},
@@ -84,9 +97,10 @@ api.interceptors.response.use(
         originalRequest.headers.Authorization = `Bearer ${accessToken}`;
         return api(originalRequest);
       } catch (refreshError) {
-        // Refresh failed, logout
         localStorage.removeItem('accessToken');
-        window.location.href = '/login';
+        if (!['/', '/login', '/register'].includes(window.location.pathname)) {
+          window.location.href = '/login';
+        }
         return Promise.reject(refreshError);
       }
     }
