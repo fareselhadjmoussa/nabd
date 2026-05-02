@@ -15,130 +15,150 @@ const conversationRoutes = require('./routes/conversations');
 const messageRoutes = require('./routes/messages');
 const uploadRoutes = require('./routes/upload');
 
-// Initialize Express app
+// App init
 const app = express();
 const server = http.createServer(app);
 
-const allowedOrigins = config.CORS_ORIGINS.length
-  ? config.CORS_ORIGINS
-  : ['http://localhost:3000'];
+/* =========================
+   🌐 CORS CONFIG FIXED
+========================= */
 
-const isPrivateNetworkHost = (hostname) => (
-  hostname === 'localhost'
-  || hostname === '127.0.0.1'
-  || hostname.startsWith('192.168.')
-  || hostname.startsWith('10.')
-  || /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)
-);
+const allowedOrigins = [
+  ...(config.CORS_ORIGINS || []),
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://127.0.0.1:3000',
+  'https://your-site.netlify.app',
+  'https://your-project.vercel.app'
+];
 
-const isDevelopmentOriginAllowed = (origin) => {
-  if (config.NODE_ENV === 'production') return false;
-
-  try {
-    const parsed = new URL(origin);
-    return isPrivateNetworkHost(parsed.hostname);
-  } catch {
-    return false;
-  }
-};
+// تنظيف أي قيم فارغة
+const cleanOrigins = [...new Set(allowedOrigins.filter(Boolean))];
 
 const corsOrigin = (origin, callback) => {
-  // Allow server-to-server tools, curl, Postman, and same-origin requests with no Origin header.
+  // السماح للطلبات بدون origin (Postman / server-to-server)
   if (!origin) return callback(null, true);
 
-  if (allowedOrigins.includes(origin) || isDevelopmentOriginAllowed(origin)) {
+  if (cleanOrigins.includes(origin)) {
     return callback(null, true);
   }
 
-  return callback(new Error(`Not allowed by CORS: ${origin}`));
+  return callback(new Error(`CORS blocked: ${origin}`));
 };
 
 const corsOptions = {
   origin: corsOrigin,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  credentials: true,
+  credentials: true
 };
 
-// Initialize Socket.io
+/* =========================
+   🔌 SOCKET.IO
+========================= */
+
 const io = new Server(server, {
-  cors: {
-    origin: corsOrigin,
-    methods: corsOptions.methods,
-    credentials: true,
-  },
+  cors: corsOptions
 });
 
-// Store io instance in app for routes to access
 app.set('io', io);
 
-// Middleware
+/* =========================
+   🛡️ MIDDLEWARE
+========================= */
+
 app.use(helmet({
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: false
 }));
+
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
-// API Routes
+/* =========================
+   📦 ROUTES
+========================= */
+
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/conversations', conversationRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/upload', uploadRoutes);
 
-// Health check
+/* =========================
+   ❤️ HEALTH CHECK
+========================= */
+
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'Nabd Chat API is running' });
+  res.json({
+    status: 'ok',
+    message: 'Nabd Chat API is running'
+  });
 });
 
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'Nabd Chat API is running', health: '/api/health' });
-});
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(err.status || 500).json({
-    success: false,
-    message: err.message || 'حدث خطأ في الخادم',
-    error: config.NODE_ENV === 'development' ? err.message : undefined,
+  res.json({
+    status: 'ok',
+    message: 'Nabd Chat API is running',
+    health: '/api/health'
   });
 });
 
-// 404 handler
+/* =========================
+   ❌ ERROR HANDLER
+========================= */
+
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message || 'Server Error',
+    error: config.NODE_ENV === 'development' ? err.message : undefined
+  });
+});
+
+/* =========================
+   404 HANDLER
+========================= */
+
 app.use((req, res) => {
   res.status(404).json({
     success: false,
-    message: 'المسار غير موجود',
+    message: 'Route not found'
   });
 });
 
-// Initialize Socket.io handler
+/* =========================
+   🔌 SOCKET HANDLER
+========================= */
+
 socketHandler(io);
 
-// Start server
+/* =========================
+   🚀 START SERVER
+========================= */
+
 const startServer = async () => {
   try {
-    // Connect to MongoDB
     await connectDB();
 
     server.listen(config.PORT, () => {
       console.log(`
-      ╔════════════════════════════════════════════════╗
-      ║                                                ║
-      ║   🎉 Nabd Chat Server Started!                 ║
-      ║                                                ║
-      ║   📡 Port: ${config.PORT}                            ║
-      ║   🌐 Environment: ${config.NODE_ENV}                    ║
-      ║   🔐 CORS Origins: ${allowedOrigins.join(', ')}
-      ║                                                ║
-      ╚════════════════════════════════════════════════╝
+╔════════════════════════════════════╗
+║     🎉 Nabd Chat Server Live      ║
+╠════════════════════════════════════╣
+║ Port: ${config.PORT}
+║ Env: ${config.NODE_ENV}
+║ CORS OK ✔
+╚════════════════════════════════════╝
       `);
     });
-  } catch (error) {
-    console.error('Failed to start server:', error);
+
+  } catch (err) {
+    console.error('❌ Server failed:', err);
     process.exit(1);
   }
 };
