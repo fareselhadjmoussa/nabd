@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { validationResult } = require('express-validator');
 const User = require('../models/User');
+const deleteUserCascade = require('../utils/deleteUserCascade');
 const config = require('../config');
 const { generateTokens, setTokenCookies, clearTokenCookies } = require('../middleware/auth');
 
@@ -72,7 +73,8 @@ const register = async (req, res) => {
       });
     }
 
-    const user = new User({ username, email, password });
+    const role = config.ADMIN_EMAILS.includes(email) ? 'admin' : 'user';
+    const user = new User({ username, email, password, role });
     await user.save();
 
     const tokens = generateTokens(user._id.toString());
@@ -148,6 +150,20 @@ const login = async (req, res) => {
       });
     }
 
+    if (user.deletedAt) {
+      return res.status(403).json({
+        success: false,
+        message: 'هذا الحساب محذوف',
+      });
+    }
+
+    if (user.isBanned) {
+      return res.status(403).json({
+        success: false,
+        message: user.bannedReason || 'تم حظر هذا الحساب',
+      });
+    }
+
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
       return res.status(401).json({
@@ -219,6 +235,20 @@ const getMe = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'المستخدم غير موجود',
+      });
+    }
+
+    if (user.deletedAt) {
+      return res.status(401).json({
+        success: false,
+        message: 'هذا الحساب محذوف',
+      });
+    }
+
+    if (user.isBanned) {
+      return res.status(403).json({
+        success: false,
+        message: user.bannedReason || 'تم حظر هذا الحساب',
       });
     }
 
@@ -348,10 +378,17 @@ const refresh = async (req, res) => {
     }
 
     const user = await User.findById(decoded.id);
-    if (!user) {
+    if (!user || user.deletedAt) {
       return res.status(401).json({
         success: false,
         message: 'المستخدم غير موجود',
+      });
+    }
+
+    if (user.isBanned) {
+      return res.status(403).json({
+        success: false,
+        message: user.bannedReason || 'تم حظر هذا الحساب',
       });
     }
 
@@ -426,6 +463,54 @@ const changePassword = async (req, res) => {
   }
 };
 
+
+/**
+ * Delete current account
+ * DELETE /api/auth/account
+ */
+const deleteAccount = async (req, res) => {
+  try {
+    const { password } = req.body;
+    const user = await User.findById(req.userId).select('+password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'المستخدم غير موجود',
+      });
+    }
+
+    const isMatch = await user.comparePassword(String(password || ''));
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'كلمة المرور غير صحيحة',
+      });
+    }
+
+    const io = req.app.get('io');
+    const deletedUserId = user._id.toString();
+    await deleteUserCascade(user._id);
+
+    if (io) {
+      io.emit('userDeleted', { userId: deletedUserId });
+    }
+
+    clearTokenCookies(res);
+
+    res.json({
+      success: true,
+      message: 'تم حذف الحساب بنجاح',
+    });
+  } catch (error) {
+    console.error('DeleteAccount error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'خطأ في حذف الحساب',
+    });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -434,4 +519,5 @@ module.exports = {
   getMe,
   updateProfile,
   changePassword,
+  deleteAccount,
 };

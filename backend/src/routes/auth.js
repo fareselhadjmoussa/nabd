@@ -43,6 +43,12 @@ const updateProfileValidation = [
     .withMessage('اللغة يجب أن تكون ar أو en'),
 ];
 
+const deleteAccountValidation = [
+  body('password')
+    .notEmpty()
+    .withMessage('كلمة المرور مطلوبة لحذف الحساب'),
+];
+
 const changePasswordValidation = [
   body('currentPassword')
     .notEmpty()
@@ -110,6 +116,18 @@ router.put(
   authenticate,
   changePasswordValidation,
   authController.changePassword
+);
+
+/**
+ * @route   DELETE /api/auth/account
+ * @desc    Delete current account
+ * @access  Private
+ */
+router.delete(
+  '/account',
+  authenticate,
+  deleteAccountValidation,
+  authController.deleteAccount
 );
 
 module.exports = router;

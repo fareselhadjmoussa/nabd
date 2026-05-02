@@ -37,6 +37,20 @@ const authenticate = async (req, res, next) => {
         });
       }
 
+      if (user.deletedAt) {
+        return res.status(401).json({
+          success: false,
+          message: 'هذا الحساب محذوف',
+        });
+      }
+
+      if (user.isBanned) {
+        return res.status(403).json({
+          success: false,
+          message: user.bannedReason || 'تم حظر هذا الحساب',
+        });
+      }
+
       // Attach user to request
       req.user = user;
       req.userId = user._id;
@@ -67,6 +81,16 @@ const authenticate = async (req, res, next) => {
  * Optional Authentication
  * Attaches user if token exists, but doesn't require it
  */
+const requireAdmin = (req, res, next) => {
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({
+      success: false,
+      message: 'هذه الصفحة خاصة بالمدير فقط',
+    });
+  }
+  return next();
+};
+
 const optionalAuth = async (req, res, next) => {
   try {
     let token;
@@ -152,6 +176,7 @@ const clearTokenCookies = (res) => {
 
 module.exports = {
   authenticate,
+  requireAdmin,
   optionalAuth,
   generateTokens,
   setTokenCookies,

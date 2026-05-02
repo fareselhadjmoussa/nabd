@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const { getBlockedUserIdsFor } = require('../utils/blocking');
 
 /**
  * Get all users (except current user)
@@ -9,7 +10,12 @@ const getUsers = async (req, res) => {
     const currentUserId = req.userId;
     const { search, page = 1, limit = 20 } = req.query;
 
-    let query = { _id: { $ne: currentUserId } };
+    const blockedIds = await getBlockedUserIdsFor(currentUserId);
+    let query = {
+      _id: { $nin: [currentUserId, ...blockedIds] },
+      isBanned: { $ne: true },
+      deletedAt: { $exists: false },
+    };
 
     // Search by username or email
     if (search) {
@@ -53,7 +59,7 @@ const getUsers = async (req, res) => {
  */
 const getUserById = async (req, res) => {
   try {
-    const user = await User.findById(req.params.id).select(
+    const user = await User.findOne({ _id: req.params.id, isBanned: { $ne: true }, deletedAt: { $exists: false } }).select(
       'username email avatar status lastSeen'
     );
 
@@ -93,8 +99,12 @@ const searchUsers = async (req, res) => {
       });
     }
 
+    const blockedIds = await getBlockedUserIdsFor(currentUserId);
+
     const users = await User.find({
-      _id: { $ne: currentUserId },
+      _id: { $nin: [currentUserId, ...blockedIds] },
+      isBanned: { $ne: true },
+      deletedAt: { $exists: false },
       $or: [
         { username: { $regex: q, $options: 'i' } },
         { email: { $regex: q, $options: 'i' } },

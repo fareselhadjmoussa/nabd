@@ -1,5 +1,7 @@
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
+const User = require('../models/User');
+const { isBlockedBetween } = require('../utils/blocking');
 
 const formatConversationForUser = (conversation, userId) => {
   const conv = typeof conversation.toObject === 'function'
@@ -126,7 +128,7 @@ const createConversation = async (req, res) => {
       });
     }
 
-    if (type === 'direct' && participantId === userId) {
+    if (type === 'direct' && participantId === userId.toString()) {
       return res.status(400).json({
         success: false,
         message: 'لا يمكنك بدء محادثة مع نفسك',
@@ -134,6 +136,21 @@ const createConversation = async (req, res) => {
     }
 
     if (type === 'direct' && participantId) {
+      const participant = await User.findOne({ _id: participantId, isBanned: { $ne: true }, deletedAt: { $exists: false } });
+      if (!participant) {
+        return res.status(404).json({
+          success: false,
+          message: 'المستخدم غير موجود أو غير متاح',
+        });
+      }
+
+      if (await isBlockedBetween(userId, participantId)) {
+        return res.status(403).json({
+          success: false,
+          message: 'لا يمكن بدء محادثة بسبب الحظر',
+        });
+      }
+
       let existingConversation = await Conversation.findDirectConversation(userId, participantId);
 
       if (existingConversation) {

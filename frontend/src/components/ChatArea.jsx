@@ -19,6 +19,8 @@ function ChatArea() {
     confirmMessage,
     removeMessage,
     markAsRead,
+    blockUser,
+    reportUser,
   } = useChatStore();
 
   const [messageText, setMessageText] = useState('');
@@ -151,6 +153,32 @@ function ChatArea() {
     }, text);
   };
 
+  const handleReportUser = async () => {
+    if (!otherParticipant?._id || !currentConversation?._id) return;
+
+    const details = prompt('اكتب سبب البلاغ باختصار');
+    if (details === null) return;
+
+    const result = await reportUser({
+      reportedUserId: otherParticipant._id,
+      conversationId: currentConversation._id,
+      reason: 'other',
+      details,
+    });
+
+    if (result.success) toast.success('تم إرسال البلاغ للإدارة');
+    else toast.error(result.message);
+  };
+
+  const handleBlockUser = async () => {
+    if (!otherParticipant?._id) return;
+    if (!confirm(`هل تريد حظر ${otherParticipant.username}؟ لن يستطيع مراسلتك بعد ذلك.`)) return;
+
+    const result = await blockUser(otherParticipant._id);
+    if (result.success) toast.success('تم حظر المستخدم');
+    else toast.error(result.message);
+  };
+
   const handleFileSelect = async (type, file) => {
     if (!file || !currentConversation?._id) return;
 
@@ -221,7 +249,7 @@ function ChatArea() {
   return (
     <div className="flex-1 flex flex-col bg-dark-300">
       <div className="h-16 bg-dark-200 border-b border-gray-700 flex items-center px-4">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
           {renderAvatar(otherParticipant)}
           <div>
             <h3 className="text-white font-medium">
@@ -236,6 +264,12 @@ function ChatArea() {
             )}
           </div>
         </div>
+        {otherParticipant && (
+          <div className="flex items-center gap-2">
+            <button onClick={handleReportUser} className="px-3 py-1.5 rounded-lg bg-dark-100 text-gray-300 hover:text-white hover:bg-gray-700 text-xs">إبلاغ</button>
+            <button onClick={handleBlockUser} className="px-3 py-1.5 rounded-lg bg-red-600/20 text-red-300 hover:bg-red-600 hover:text-white text-xs">حظر</button>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 chat-messages">

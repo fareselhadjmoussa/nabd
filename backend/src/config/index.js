@@ -15,6 +15,7 @@ const parseOrigins = (value) => {
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 const CORS_ORIGINS = parseOrigins(process.env.CORS_ORIGINS || FRONTEND_URL);
+const ADMIN_EMAILS = parseOrigins(process.env.ADMIN_EMAILS).map((email) => email.toLowerCase());
 
 module.exports = {
   // Server
@@ -37,6 +38,7 @@ module.exports = {
   // CORS
   FRONTEND_URL,
   CORS_ORIGINS,
+  ADMIN_EMAILS,
 
   // Upload Limits (in bytes)
   MAX_IMAGE_SIZE: parseInt(process.env.MAX_IMAGE_SIZE, 10) || 5242880, // 5MB

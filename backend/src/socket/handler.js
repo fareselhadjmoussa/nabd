@@ -3,6 +3,7 @@ const config = require('../config');
 const User = require('../models/User');
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
+const { isBlockedBetween } = require('../utils/blocking');
 
 /**
  * Socket.io Handler
@@ -90,8 +91,12 @@ const socketHandler = (io) => {
       const decoded = jwt.verify(token, config.JWT_SECRET);
       const user = await User.findById(decoded.id);
 
-      if (!user) {
+      if (!user || user.deletedAt) {
         return next(new Error('User not found'));
+      }
+
+      if (user.isBanned) {
+        return next(new Error(user.bannedReason || 'Account banned'));
       }
 
       socket.user = user;
@@ -186,6 +191,13 @@ const socketHandler = (io) => {
 
         if (!conversation) {
           return socket.emit('error', { message: 'المحادثة غير موجودة', clientId });
+        }
+
+        if (conversation.type === 'direct' && conversation.participants.length === 2) {
+          const otherUserId = conversation.participants.find((participantId) => !participantId.equals(socket.userId));
+          if (otherUserId && await isBlockedBetween(socket.userId, otherUserId)) {
+            return socket.emit('error', { message: 'لا يمكن إرسال رسالة بسبب الحظر', clientId });
+          }
         }
 
         const message = new Message({
@@ -323,6 +335,10 @@ const socketHandler = (io) => {
         const { recipientId, content, clientId } = data;
         if (!recipientId || !String(content || '').trim()) {
           return socket.emit('error', { message: 'بيانات الرسالة غير صالحة', clientId });
+        }
+
+        if (await isBlockedBetween(socket.userId, recipientId)) {
+          return socket.emit('error', { message: 'لا يمكن إرسال رسالة بسبب الحظر', clientId });
         }
 
         let conversation = await Conversation.findDirectConversation(socket.userId, recipientId);

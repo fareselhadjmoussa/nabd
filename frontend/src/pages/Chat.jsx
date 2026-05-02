@@ -26,6 +26,7 @@ function Chat() {
     removeOnlineUser,
     setOnlineUsers,
     markAsRead,
+    removeUserEverywhere,
     updateUserEverywhere,
   } = useChatStore();
 
@@ -111,6 +112,11 @@ function Chat() {
     const handleUserOffline = ({ userId }) => removeOnlineUser(userId);
     const handleOnlineUsersList = ({ users }) => setOnlineUsers(users);
     const handleUserProfileUpdated = ({ user: updatedUser }) => updateUserEverywhere(updatedUser);
+    const handleUserDeleted = ({ userId }) => removeUserEverywhere(userId);
+    const handleAccountBanned = ({ message }) => {
+      toast.error(message || 'تم حظر حسابك');
+      logout().finally(() => navigate('/login'));
+    };
 
     socketService.on('newMessage', handleNewMessage);
     socketService.on('messageSent', handleMessageSent);
@@ -124,6 +130,8 @@ function Chat() {
     socketService.on('userOffline', handleUserOffline);
     socketService.on('onlineUsersList', handleOnlineUsersList);
     socketService.on('userProfileUpdated', handleUserProfileUpdated);
+    socketService.on('userDeleted', handleUserDeleted);
+    socketService.on('accountBanned', handleAccountBanned);
 
     socketService.getOnlineUsers();
 
@@ -141,6 +149,8 @@ function Chat() {
       socketService.off('userOffline', handleUserOffline);
       socketService.off('onlineUsersList', handleOnlineUsersList);
       socketService.off('userProfileUpdated', handleUserProfileUpdated);
+      socketService.off('userDeleted', handleUserDeleted);
+      socketService.off('accountBanned', handleAccountBanned);
     };
   }, []);
 

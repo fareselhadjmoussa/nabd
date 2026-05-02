@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { authAPI, usersAPI, conversationsAPI, messagesAPI, uploadAPI } from '../services/api';
+import { authAPI, usersAPI, conversationsAPI, messagesAPI, uploadAPI, blocksAPI, reportsAPI } from '../services/api';
 import socketService from '../services/socket';
 
 const getId = (value) => value?._id?.toString?.() || value?.toString?.() || '';
@@ -131,6 +131,22 @@ export const useAuthStore = create((set, get) => ({
       return {
         success: false,
         message: error.response?.data?.message || 'خطأ في تحديث الملف الشخصي',
+      };
+    }
+  },
+
+  deleteAccount: async (password) => {
+    try {
+      await authAPI.deleteAccount({ password });
+      localStorage.removeItem('accessToken');
+      socketService.disconnect();
+      set({ user: null, isAuthenticated: false });
+      useChatStore.getState().clearChat();
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'خطأ في حذف الحساب',
       };
     }
   },
@@ -549,6 +565,51 @@ export const useChatStore = create((set, get) => ({
     });
   },
 
+  blockUser: async (userId) => {
+    try {
+      await blocksAPI.blockUser(userId);
+      set((state) => ({
+        conversations: state.conversations.filter((conversation) => (
+          !conversation.participants?.some((participant) => getId(participant) === userId)
+        )),
+        currentConversation: state.currentConversation?.participants?.some((participant) => getId(participant) === userId)
+          ? null
+          : state.currentConversation,
+      }));
+      return { success: true };
+    } catch (error) {
+      return { success: false, message: error.response?.data?.message || 'خطأ في حظر المستخدم' };
+    }
+  },
+
+  reportUser: async ({ reportedUserId, conversationId, messageId, reason, details }) => {
+    try {
+      await reportsAPI.createReport({ reportedUserId, conversationId, messageId, reason, details });
+      return { success: true };
+    } catch (error) {
+      return { success: false, message: error.response?.data?.message || 'خطأ في إرسال البلاغ' };
+    }
+  },
+
+  removeUserEverywhere: (userId) => {
+    if (!userId) return;
+    set((state) => ({
+      conversations: state.conversations.filter((conversation) => (
+        !conversation.participants?.some((participant) => getId(participant) === userId)
+      )),
+      currentConversation: state.currentConversation?.participants?.some((participant) => getId(participant) === userId)
+        ? null
+        : state.currentConversation,
+      messages: state.messages.filter((message) => getMessageSenderId(message) !== userId),
+      messagesByConversation: Object.fromEntries(
+        Object.entries(state.messagesByConversation).map(([conversationId, list]) => [
+          conversationId,
+          list.filter((message) => getMessageSenderId(message) !== userId),
+        ])
+      ),
+    }));
+  },
+
   clearChat: () => {
     set({
       conversations: [],
@@ -593,5 +654,25 @@ export const useUsersStore = create((set) => ({
 
   clearSearch: () => {
     set({ searchResults: [] });
+  },
+}));
+
+
+// Theme Store
+export const useThemeStore = create((set, get) => ({
+  theme: localStorage.getItem('theme') || 'dark',
+  initTheme: () => {
+    const theme = localStorage.getItem('theme') || 'dark';
+    set({ theme });
+    document.documentElement.classList.toggle('theme-light', theme === 'light');
+  },
+  setTheme: (theme) => {
+    localStorage.setItem('theme', theme);
+    document.documentElement.classList.toggle('theme-light', theme === 'light');
+    set({ theme });
+  },
+  toggleTheme: () => {
+    const nextTheme = get().theme === 'dark' ? 'light' : 'dark';
+    get().setTheme(nextTheme);
   },
 }));

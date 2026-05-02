@@ -42,6 +42,28 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    role: {
+      type: String,
+      enum: ['user', 'admin'],
+      default: 'user',
+      index: true,
+    },
+    isBanned: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    bannedReason: {
+      type: String,
+      default: '',
+      maxlength: 500,
+    },
+    bannedAt: {
+      type: Date,
+    },
+    deletedAt: {
+      type: Date,
+    },
     // For RTL support
     language: {
       type: String,
@@ -99,6 +121,8 @@ userSchema.methods.getPublicProfile = function () {
     status: this.status,
     lastSeen: this.lastSeen,
     language: this.language,
+    role: this.role,
+    isBanned: this.isBanned,
     createdAt: this.createdAt,
   };
 };

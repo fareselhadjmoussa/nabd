@@ -1,5 +1,6 @@
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
+const { isBlockedBetween } = require('../utils/blocking');
 
 const buildMessageForClient = (message, clientId) => {
   const messageObject = typeof message.toObject === 'function'
@@ -140,6 +141,16 @@ const sendMessage = async (req, res) => {
         success: false,
         message: 'المحادثة غير موجودة',
       });
+    }
+
+    if (conversation.type === 'direct' && conversation.participants.length === 2) {
+      const otherUserId = conversation.participants.find((participantId) => !participantId.equals(userId));
+      if (otherUserId && await isBlockedBetween(userId, otherUserId)) {
+        return res.status(403).json({
+          success: false,
+          message: 'لا يمكن إرسال رسالة بسبب الحظر',
+        });
+      }
     }
 
     const message = new Message({

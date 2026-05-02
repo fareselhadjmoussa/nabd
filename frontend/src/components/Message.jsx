@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import socketService from '../services/socket';
@@ -21,6 +21,13 @@ function Message({ message, isSent, showAvatar }) {
 
   const formatTime = (date) => {
     return format(new Date(date), 'HH:mm', { locale: ar });
+  };
+
+  const renderStatus = () => {
+    if (message.failed) return <span className="text-[10px] text-red-300">فشل</span>;
+    if (message.pending) return <span className="text-[10px] text-gray-300">جارٍ الإرسال...</span>;
+    if (message.readBy?.length > 1) return <span className="text-[10px] text-cyan-200">✓✓ مقروءة</span>;
+    return <span className="text-[10px] text-gray-300">✓ تم الإرسال</span>;
   };
 
   const renderContent = () => {
@@ -89,11 +96,7 @@ function Message({ message, isSent, showAvatar }) {
 
         <div className="flex items-center gap-1 mt-1">
           <span className="text-[10px] text-gray-400">{formatTime(message.createdAt)}</span>
-          {isSent && !message.deleted && (
-            <span className="text-[10px] text-gray-300">
-              {message.pending ? '...' : (message.readBy?.length > 1 ? '✓✓' : '✓')}
-            </span>
-          )}
+          {isSent && !message.deleted && renderStatus()}
         </div>
 
         {showMenu && !message.deleted && (

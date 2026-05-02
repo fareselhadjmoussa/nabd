@@ -231,3 +231,54 @@ input:-webkit-autofill:focus {
   -webkit-box-shadow: 0 0 0px 1000px #1e293b inset;
   transition: background-color 5000s ease-in-out 0s;
 }
+
+/* Light theme compatibility for existing Tailwind utility classes */
+.theme-light body {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.theme-light .bg-dark-300 {
+  background-color: #f8fafc !important;
+}
+
+.theme-light .bg-dark-200 {
+  background-color: #ffffff !important;
+}
+
+.theme-light .bg-dark-100 {
+  background-color: #e2e8f0 !important;
+}
+
+.theme-light .text-white {
+  color: #0f172a !important;
+}
+
+.theme-light .text-gray-400 {
+  color: #64748b !important;
+}
+
+.theme-light .text-gray-300 {
+  color: #475569 !important;
+}
+
+.theme-light .border-gray-700,
+.theme-light .border-gray-800 {
+  border-color: #cbd5e1 !important;
+}
+
+.theme-light input,
+.theme-light textarea,
+.theme-light select {
+  color: #0f172a !important;
+}
+
+.theme-light input::placeholder,
+.theme-light textarea::placeholder {
+  color: #64748b !important;
+}
+
+.theme-light .glass {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(15, 23, 42, 0.08);
+}

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuthStore, useChatStore } from '../stores';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
@@ -105,7 +106,12 @@ function Sidebar({ onNewChat, onProfile, onLogout, onConversationSelect }) {
       {/* Header */}
       <div className="p-4 border-b border-gray-700">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-white">نبض شات</h2>
+          <div>
+            <h2 className="text-xl font-bold text-white">نبض شات</h2>
+            {user?.role === 'admin' && (
+              <Link to="/admin" className="text-xs text-primary-400 hover:text-primary-300">لوحة المدير</Link>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <button
               onClick={onNewChat}
