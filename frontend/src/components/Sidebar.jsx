@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { useAuthStore, useChatStore } from '../stores';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
+import BrandLogo from './BrandLogo';
+import ThemeToggle from './ThemeToggle';
 
 function Sidebar({ onNewChat, onProfile, onLogout, onConversationSelect }) {
   const { user } = useAuthStore();
@@ -10,23 +12,15 @@ function Sidebar({ onNewChat, onProfile, onLogout, onConversationSelect }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredConversations, setFilteredConversations] = useState([]);
 
-  const getOtherParticipant = (conversation) => {
-    return conversation?.participants?.find((participant) => participant?._id !== user?._id);
-  };
+  const getOtherParticipant = (conversation) => conversation?.participants?.find((participant) => participant?._id !== user?._id);
 
   const getConversationTitle = (conversation) => {
-    if (conversation?.type === 'direct') {
-      return getOtherParticipant(conversation)?.username || conversation?.name || 'محادثة';
-    }
-
+    if (conversation?.type === 'direct') return getOtherParticipant(conversation)?.username || conversation?.name || 'محادثة';
     return conversation?.name || 'مجموعة';
   };
 
   const getConversationAvatar = (conversation) => {
-    if (conversation?.type === 'direct') {
-      return getOtherParticipant(conversation)?.avatar;
-    }
-
+    if (conversation?.type === 'direct') return getOtherParticipant(conversation)?.avatar;
     return conversation?.avatar;
   };
 
@@ -37,10 +31,10 @@ function Sidebar({ onNewChat, onProfile, onLogout, onConversationSelect }) {
       const filtered = conversations.filter((conversation) => {
         const title = getConversationTitle(conversation).toLowerCase();
         const participants = conversation.participants || [];
-        const participantMatch = participants.some((participant) =>
-          participant?.username?.toLowerCase().includes(query) ||
-          participant?.email?.toLowerCase().includes(query)
-        );
+        const participantMatch = participants.some((participant) => (
+          participant?.username?.toLowerCase().includes(query)
+          || participant?.email?.toLowerCase().includes(query)
+        ));
 
         return title.includes(query) || participantMatch;
       });
@@ -56,28 +50,21 @@ function Sidebar({ onNewChat, onProfile, onLogout, onConversationSelect }) {
     const avatar = getConversationAvatar(conversation);
 
     if (avatar) {
-      return (
-        <img
-          src={avatar}
-          alt={title}
-          className="w-12 h-12 rounded-full object-cover"
-        />
-      );
+      return <img src={avatar} alt={title} className="h-12 w-12 rounded-2xl object-cover ring-1 ring-white/10" />;
     }
 
     return (
-      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white font-bold text-lg">
+      <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-cyan-300 to-emerald-300 text-lg font-black text-slate-950 shadow-[0_12px_30px_rgba(45,212,191,.18)]">
         {title?.charAt(0) || '?'}
       </div>
     );
   };
 
-  const isUserOnline = (participant) => {
-    return participant?._id !== user?._id && onlineUsers.includes(participant?._id);
-  };
+  const isUserOnline = (participant) => participant?._id !== user?._id && onlineUsers.includes(participant?._id);
 
   const formatLastMessage = (message) => {
-    if (!message) return 'لا توجد رسائل';
+    if (!message) return 'لا توجد رسائل بعد';
+    if (message.deleted) return 'تم حذف رسالة';
     if (message.type === 'image') return '📷 صورة';
     if (message.type === 'video') return '🎬 فيديو';
     if (message.type === 'audio') return '🎤 رسالة صوتية';
@@ -90,157 +77,137 @@ function Sidebar({ onNewChat, onProfile, onLogout, onConversationSelect }) {
     const now = new Date();
     const diffDays = Math.floor((now - messageDate) / (1000 * 60 * 60 * 24));
 
-    if (diffDays === 0) {
-      return format(messageDate, 'HH:mm', { locale: ar });
-    } else if (diffDays === 1) {
-      return 'أمس';
-    } else if (diffDays < 7) {
-      return format(messageDate, 'EEEE', { locale: ar });
-    } else {
-      return format(messageDate, 'dd/MM/yyyy', { locale: ar });
-    }
+    if (diffDays === 0) return format(messageDate, 'HH:mm', { locale: ar });
+    if (diffDays === 1) return 'أمس';
+    if (diffDays < 7) return format(messageDate, 'EEEE', { locale: ar });
+    return format(messageDate, 'dd/MM/yyyy', { locale: ar });
   };
 
+  const unreadTotal = conversations.reduce((total, conversation) => total + (Number(conversation.unreadCount) || 0), 0);
+
   return (
-    <div className="w-80 bg-dark-200 border-l border-gray-700 flex flex-col">
-      {/* Header */}
-      <div className="p-4 border-b border-gray-700">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h2 className="text-xl font-bold text-white">نبض شات</h2>
-            {user?.role === 'admin' && (
-              <Link to="/admin" className="text-xs text-primary-400 hover:text-primary-300">لوحة المدير</Link>
-            )}
-          </div>
+    <aside className="flex w-80 shrink-0 flex-col border-l border-white/10 bg-dark-200/95 backdrop-blur professional-sidebar">
+      <div className="border-b border-white/10 p-4">
+        <div className="mb-5 flex items-center justify-between gap-3">
+          <Link to="/chat" className="min-w-0">
+            <BrandLogo size="sm" />
+          </Link>
           <div className="flex items-center gap-2">
+            <ThemeToggle compact />
             <button
               onClick={onNewChat}
-              className="p-2 hover:bg-dark-100 rounded-full transition-colors"
+              className="grid h-10 w-10 place-items-center rounded-2xl bg-cyan-300 text-slate-950 shadow-[0_12px_35px_rgba(34,211,238,.2)] transition hover:-translate-y-0.5 hover:bg-cyan-200"
               title="محادثة جديدة"
             >
-              <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-            </button>
-            <button
-              onClick={onProfile}
-              className="p-2 hover:bg-dark-100 rounded-full transition-colors"
-              title="الملف الشخصي"
-            >
-              <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 5v14m7-7H5" />
               </svg>
             </button>
           </div>
         </div>
 
-        {/* Search */}
+        <div className="mb-4 flex items-center justify-between rounded-3xl border border-white/10 bg-white/[.04] px-4 py-3">
+          <div>
+            <p className="text-xs text-gray-400">المحادثات</p>
+            <p className="text-lg font-black text-white">{conversations.length}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-400">غير مقروء</p>
+            <p className="text-lg font-black text-cyan-200">{unreadTotal}</p>
+          </div>
+          {user?.role === 'admin' && (
+            <Link to="/admin" className="rounded-2xl bg-emerald-300/10 px-3 py-2 text-xs font-bold text-emerald-200 ring-1 ring-emerald-300/20 hover:bg-emerald-300/20">
+              Admin
+            </Link>
+          )}
+        </div>
+
         <div className="relative">
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="البحث في المحادثات..."
-            className="w-full bg-dark-100 border border-gray-700 rounded-xl px-4 py-2 pl-10 text-white text-sm focus:border-primary-500 focus:outline-none transition-colors"
+            className="w-full rounded-2xl border border-white/10 bg-dark-100/80 px-4 py-3 pr-11 text-sm text-white outline-none transition placeholder:text-gray-500 focus:border-cyan-300/70 focus:ring-4 focus:ring-cyan-300/10"
           />
-          <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </div>
       </div>
 
-      {/* Conversations List */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto p-2">
         {filteredConversations.length === 0 ? (
-          <div className="p-4 text-center text-gray-400">
-            <svg className="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-            </svg>
-            <p>لا توجد محادثات</p>
-            <button
-              onClick={onNewChat}
-              className="mt-2 text-primary-500 hover:text-primary-400 text-sm"
-            >
-              ابدأ محادثة جديدة
+          <div className="m-3 rounded-[2rem] border border-dashed border-white/10 bg-white/[.03] p-6 text-center text-gray-400">
+            <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-3xl bg-cyan-300/10 text-3xl">💬</div>
+            <p className="font-bold text-white">لا توجد محادثات</p>
+            <p className="mt-2 text-sm leading-6">ابدأ محادثة جديدة وابحث عن مستخدم للانطلاق.</p>
+            <button onClick={onNewChat} className="mt-4 rounded-2xl bg-cyan-300 px-4 py-2 text-sm font-black text-slate-950 hover:bg-cyan-200">
+              محادثة جديدة
             </button>
           </div>
         ) : (
-          filteredConversations.map((conversation) => (
-            <div
-              key={conversation._id}
-              onClick={() => onConversationSelect(conversation)}
-              className={`p-4 cursor-pointer hover:bg-dark-100 transition-colors border-b border-gray-800 ${
-                currentConversation?._id === conversation._id ? 'bg-dark-100' : ''
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                {/* Avatar */}
-                <div className="relative">
-                  {getAvatar(conversation)}
-                  {conversation.type === 'direct' &&
-                    conversation.participants?.some((p) => isUserOnline(p)) && (
-                      <div className="absolute bottom-0 left-0 w-3 h-3 bg-green-500 rounded-full border-2 border-dark-200"></div>
-                    )}
-                </div>
+          filteredConversations.map((conversation) => {
+            const active = currentConversation?._id === conversation._id;
+            const other = getOtherParticipant(conversation);
+            const online = conversation.type === 'direct' && conversation.participants?.some((participant) => isUserOnline(participant));
 
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-white font-medium truncate">
-                      {getConversationTitle(conversation)}
-                    </h3>
-                    <span className="text-xs text-gray-400">
-                      {formatTime(conversation.updatedAt)}
-                    </span>
+            return (
+              <button
+                type="button"
+                key={conversation._id}
+                onClick={() => onConversationSelect(conversation)}
+                className={`mb-2 w-full rounded-[1.6rem] border p-3 text-right transition ${active ? 'border-cyan-300/40 bg-cyan-300/10 shadow-[0_12px_40px_rgba(34,211,238,.08)]' : 'border-transparent hover:border-white/10 hover:bg-white/[.04]'}`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="relative shrink-0">
+                    {getAvatar(conversation)}
+                    {online && <div className="absolute -bottom-0.5 -left-0.5 h-4 w-4 rounded-full border-2 border-dark-200 bg-emerald-400 shadow-[0_0_16px_rgba(52,211,153,.7)]" />}
                   </div>
-                  <div className="flex items-center justify-between mt-1">
-                    <p className="text-sm text-gray-400 truncate">
-                      {formatLastMessage(conversation.lastMessage)}
-                    </p>
-                    {conversation.unreadCount > 0 && (
-                      <span className="min-w-[20px] h-[20px] bg-primary-500 rounded-full text-xs text-white flex items-center justify-center">
-                        {conversation.unreadCount}
-                      </span>
-                    )}
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-3">
+                      <h3 className="truncate font-bold text-white">{getConversationTitle(conversation)}</h3>
+                      <span className="shrink-0 text-[11px] text-gray-500">{formatTime(conversation.updatedAt)}</span>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between gap-3">
+                      <p className="truncate text-sm text-gray-400">{formatLastMessage(conversation.lastMessage)}</p>
+                      {conversation.unreadCount > 0 && (
+                        <span className="grid min-h-[22px] min-w-[22px] place-items-center rounded-full bg-cyan-300 px-1.5 text-xs font-black text-slate-950">
+                          {conversation.unreadCount}
+                        </span>
+                      )}
+                    </div>
+                    {other?.email && <p className="mt-0.5 truncate text-[11px] text-gray-500">@{other.username}</p>}
                   </div>
                 </div>
-              </div>
-            </div>
-          ))
+              </button>
+            );
+          })
         )}
       </div>
 
-      {/* User Info */}
-      <div className="p-4 border-t border-gray-700">
-        <div className="flex items-center gap-3">
+      <div className="border-t border-white/10 p-4">
+        <div className="flex items-center gap-3 rounded-[1.6rem] bg-white/[.04] p-3 ring-1 ring-white/10">
           {user?.avatar ? (
-            <img
-              src={user.avatar}
-              alt={user.username || 'avatar'}
-              className="w-10 h-10 rounded-full object-cover"
-            />
+            <img src={user.avatar} alt={user.username || 'avatar'} className="h-11 w-11 rounded-2xl object-cover" />
           ) : (
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white font-bold">
+            <div className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-cyan-300 to-emerald-300 font-black text-slate-950">
               {user?.username?.charAt(0) || '?'}
             </div>
           )}
-          <div className="flex-1">
-            <h3 className="text-white font-medium">{user?.username}</h3>
-            <p className="text-xs text-green-500">متصل</p>
-          </div>
-          <button
-            onClick={onLogout}
-            className="p-2 hover:bg-dark-100 rounded-full transition-colors text-gray-400 hover:text-red-500"
-            title="تسجيل الخروج"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button type="button" onClick={onProfile} className="min-w-0 flex-1 text-right">
+            <h3 className="truncate font-bold text-white">{user?.username}</h3>
+            <p className="text-xs text-emerald-300">متصل الآن</p>
+          </button>
+          <button onClick={onLogout} className="grid h-10 w-10 place-items-center rounded-2xl text-gray-400 transition hover:bg-red-500/10 hover:text-red-300" title="تسجيل الخروج">
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
             </svg>
           </button>
         </div>
       </div>
-    </div>
+    </aside>
   );
 }
 

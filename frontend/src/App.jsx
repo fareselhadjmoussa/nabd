@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Chat from './pages/Chat';
 import Admin from './pages/Admin';
+import BrandLogo from './components/BrandLogo';
 import './index.css';
 
 function App() {
@@ -19,9 +20,10 @@ function App() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-dark-300 flex items-center justify-center">
+      <div className="min-h-screen bg-dark-300 professional-surface flex items-center justify-center">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <div className="mb-5 flex justify-center"><BrandLogo size="lg" /></div>
+          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-cyan-300 border-t-transparent"></div>
           <p className="text-white text-lg">جاري التحميل...</p>
         </div>
       </div>

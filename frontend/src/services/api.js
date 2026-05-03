@@ -22,7 +22,15 @@ const getDefaultBackendUrl = () => {
 
   const protocol = window.location.protocol || 'http:';
   const hostname = window.location.hostname || 'localhost';
-  return `${protocol}//${hostname}:5000`;
+
+  // في التطوير المحلي نستخدم backend على المنفذ 5000.
+  // في الإنتاج لا نضيف :5000 حتى لا يحاول Vercel طلب نفسه بمنفذ غير موجود.
+  // يجب ضبط VITE_API_URL في Vercel، لكن هذا fallback أكثر أماناً إذا نُسي المتغير.
+  if (isLocalHostName(hostname)) {
+    return `${protocol}//${hostname}:5000`;
+  }
+
+  return `${protocol}//${hostname}`;
 };
 
 const getApiUrl = () => {

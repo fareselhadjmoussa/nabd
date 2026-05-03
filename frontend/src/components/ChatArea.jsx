@@ -146,11 +146,7 @@ function ChatArea() {
     setMessageText('');
     if (isTyping) stopTyping();
 
-    await sendPayload({
-      conversationId: currentConversation._id,
-      content: text,
-      type: 'text',
-    }, text);
+    await sendPayload({ conversationId: currentConversation._id, content: text, type: 'text' }, text);
   };
 
   const handleReportUser = async () => {
@@ -159,12 +155,7 @@ function ChatArea() {
     const details = prompt('اكتب سبب البلاغ باختصار');
     if (details === null) return;
 
-    const result = await reportUser({
-      reportedUserId: otherParticipant._id,
-      conversationId: currentConversation._id,
-      reason: 'other',
-      details,
-    });
+    const result = await reportUser({ reportedUserId: otherParticipant._id, conversationId: currentConversation._id, reason: 'other', details });
 
     if (result.success) toast.success('تم إرسال البلاغ للإدارة');
     else toast.error(result.message);
@@ -188,12 +179,7 @@ function ChatArea() {
     const result = await uploadMedia(type, file);
 
     if (result.success) {
-      await sendPayload({
-        conversationId: currentConversation._id,
-        content: '',
-        type,
-        mediaUrl: result.url,
-      });
+      await sendPayload({ conversationId: currentConversation._id, content: '', type, mediaUrl: result.url });
     } else {
       toast.error(result.message);
     }
@@ -202,11 +188,25 @@ function ChatArea() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const renderAvatar = (participant, size = 'md') => {
+    const classes = size === 'lg' ? 'h-12 w-12 rounded-2xl' : 'h-10 w-10 rounded-2xl';
+
+    if (participant?.avatar) {
+      return <img src={participant.avatar} alt={participant.username || 'avatar'} className={`${classes} object-cover ring-1 ring-white/10`} />;
+    }
+
+    return (
+      <div className={`${classes} grid place-items-center bg-gradient-to-br from-cyan-300 to-emerald-300 font-black text-slate-950`}>
+        {participant?.username?.charAt(0) || '?'}
+      </div>
+    );
+  };
+
   const renderMessageGroups = () => messageGroups.map((group, index) => {
     if (group.type === 'date') {
       return (
-        <div key={`date-${group.date}-${index}`} className="flex justify-center my-4">
-          <span className="bg-dark-100 text-gray-400 text-xs px-3 py-1 rounded-full">
+        <div key={`date-${group.date}-${index}`} className="flex justify-center my-5">
+          <span className="rounded-full border border-white/10 bg-dark-200/80 px-4 py-1.5 text-xs text-gray-400 shadow-sm backdrop-blur">
             {formatDateHeader(group.date)}
           </span>
         </div>
@@ -218,72 +218,63 @@ function ChatArea() {
     const nextMessage = messageGroups[index + 1]?.type === 'message' ? messageGroups[index + 1].message : null;
     const showAvatar = !nextMessage || nextMessage.sender?._id !== message.sender?._id;
 
-    return (
-      <Message
-        key={message._id}
-        message={message}
-        isSent={isSent}
-        showAvatar={showAvatar}
-      />
-    );
+    return <Message key={message._id} message={message} isSent={isSent} showAvatar={showAvatar} />;
   });
 
-  const renderAvatar = (participant) => {
-    if (participant?.avatar) {
-      return (
-        <img
-          src={participant.avatar}
-          alt={participant.username || 'avatar'}
-          className="w-10 h-10 rounded-full object-cover"
-        />
-      );
-    }
-
-    return (
-      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white font-bold">
-        {participant?.username?.charAt(0) || '?'}
-      </div>
-    );
-  };
-
   return (
-    <div className="flex-1 flex flex-col bg-dark-300">
-      <div className="h-16 bg-dark-200 border-b border-gray-700 flex items-center px-4">
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          {renderAvatar(otherParticipant)}
-          <div>
-            <h3 className="text-white font-medium">
+    <main className="relative flex flex-1 flex-col overflow-hidden bg-dark-300 professional-chat-bg">
+      <header className="z-10 flex min-h-[76px] items-center border-b border-white/10 bg-dark-200/90 px-4 backdrop-blur md:px-6">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <div className="relative shrink-0">
+            {renderAvatar(otherParticipant, 'lg')}
+            {otherParticipant?.status === 'online' && <span className="absolute -bottom-1 -left-1 h-4 w-4 rounded-full border-2 border-dark-200 bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,.7)]" />}
+          </div>
+          <div className="min-w-0">
+            <h3 className="truncate font-black text-white">
               {currentConversation?.name || otherParticipant?.username || 'محادثة'}
             </h3>
             {typingUser ? (
-              <p className="text-xs text-gray-400">{typingUser.username} يكتب...</p>
+              <p className="text-xs text-cyan-200">{typingUser.username} يكتب الآن...</p>
             ) : (
-              <p className="text-xs text-gray-400">
-                {otherParticipant?.status === 'online' ? 'متصل' : 'غير متصل'}
-              </p>
+              <p className="text-xs text-gray-400">{otherParticipant?.status === 'online' ? 'متصل الآن' : 'غير متصل'}</p>
             )}
           </div>
         </div>
         {otherParticipant && (
           <div className="flex items-center gap-2">
-            <button onClick={handleReportUser} className="px-3 py-1.5 rounded-lg bg-dark-100 text-gray-300 hover:text-white hover:bg-gray-700 text-xs">إبلاغ</button>
-            <button onClick={handleBlockUser} className="px-3 py-1.5 rounded-lg bg-red-600/20 text-red-300 hover:bg-red-600 hover:text-white text-xs">حظر</button>
+            <button onClick={handleReportUser} className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-gray-300 transition hover:bg-white/10 hover:text-white">
+              إبلاغ
+            </button>
+            <button onClick={handleBlockUser} className="rounded-2xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs text-red-200 transition hover:bg-red-500 hover:text-white">
+              حظر
+            </button>
           </div>
         )}
-      </div>
+      </header>
 
-      <div className="flex-1 overflow-y-auto p-4 chat-messages">
+      <section className="relative flex-1 overflow-y-auto px-4 py-5 chat-messages md:px-8">
         {loadingMessages && messages.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-gray-400 text-sm">
-            جاري تحميل الرسائل...
+          <div className="flex h-full items-center justify-center">
+            <div className="rounded-3xl border border-white/10 bg-white/[.04] px-6 py-5 text-center text-gray-400 backdrop-blur">
+              <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-cyan-300 border-t-transparent" />
+              جاري تحميل الرسائل...
+            </div>
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-center">
+            <div className="max-w-sm rounded-[2rem] border border-white/10 bg-white/[.04] p-8 backdrop-blur">
+              <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-3xl bg-cyan-300/10 text-3xl">💬</div>
+              <h3 className="text-xl font-black text-white">ابدأ المحادثة</h3>
+              <p className="mt-2 text-sm leading-7 text-gray-400">اكتب أول رسالة وسيتم إرسالها فوراً للطرف الآخر.</p>
+            </div>
           </div>
         ) : (
           renderMessageGroups()
         )}
 
         {typingUser && (
-          <div className="flex items-center gap-2 mt-2">
-            <div className="typing-indicator">
+          <div className="mt-3 flex items-center gap-2">
+            <div className="typing-indicator rounded-2xl bg-dark-200/80">
               <span></span>
               <span></span>
               <span></span>
@@ -292,17 +283,12 @@ function ChatArea() {
           </div>
         )}
         <div ref={messagesEndRef} />
-      </div>
+      </section>
 
       {showAttachMenu && (
-        <div className="absolute bottom-20 right-4 bg-dark-200 rounded-xl shadow-xl p-2 z-10">
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-3 w-full p-3 hover:bg-dark-100 rounded-lg text-white"
-          >
-            <svg className="w-5 h-5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
+        <div className="absolute bottom-24 right-5 z-20 rounded-3xl border border-white/10 bg-dark-200/95 p-2 shadow-2xl backdrop-blur">
+          <button onClick={() => fileInputRef.current?.click()} className="flex w-full items-center gap-3 rounded-2xl p-3 text-white transition hover:bg-white/10">
+            <span className="grid h-10 w-10 place-items-center rounded-2xl bg-cyan-300/10 text-cyan-200">📎</span>
             <span>صورة / فيديو / صوت</span>
           </button>
         </div>
@@ -325,18 +311,16 @@ function ChatArea() {
         }}
       />
 
-      <form onSubmit={handleSendMessage} className="p-4 bg-dark-200 border-t border-gray-700">
-        <div className="flex items-center gap-2">
+      <form onSubmit={handleSendMessage} className="z-10 border-t border-white/10 bg-dark-200/90 p-4 backdrop-blur md:p-5">
+        <div className="mx-auto flex max-w-5xl items-center gap-2 rounded-[1.8rem] border border-white/10 bg-dark-100/80 p-2 shadow-[0_14px_40px_rgba(0,0,0,.16)]">
           <button
             type="button"
             onClick={() => setShowAttachMenu(!showAttachMenu)}
-            className="p-2 hover:bg-dark-100 rounded-full transition-colors text-gray-400 hover:text-white"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-gray-400 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
             disabled={uploading}
+            title="إرفاق ملف"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.414a.5.5 0 01.707 0 .5.5 0 010 .707l-6.415 6.414a2 2 0 01-2.828 0 .5.5 0 010-.707L9.172 8a.5.5 0 010-.707l6.414-6.414a.5.5 0 01.586 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a1 1 0 001 1h10a1 1 0 001-1V7a1 1 0 00-1-1H4a1 1 0 00-1 1z" />
-            </svg>
+            📎
           </button>
 
           <input
@@ -347,28 +331,20 @@ function ChatArea() {
               handleTyping();
             }}
             placeholder="اكتب رسالة..."
-            className="flex-1 bg-dark-100 border border-gray-700 rounded-full px-4 py-2 text-white focus:border-primary-500 focus:outline-none transition-colors"
+            className="min-w-0 flex-1 bg-transparent px-2 py-3 text-white outline-none placeholder:text-gray-500"
           />
 
           <button
             type="submit"
             disabled={!messageText.trim() || uploading}
-            className="p-2 bg-primary-500 hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-full transition-colors text-white"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-cyan-300 font-black text-slate-950 shadow-[0_12px_35px_rgba(34,211,238,.22)] transition hover:-translate-y-0.5 hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
+            title="إرسال"
           >
-            {uploading ? (
-              <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-              </svg>
-            ) : (
-              <svg className="w-5 h-5 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-              </svg>
-            )}
+            {uploading ? <span className="h-5 w-5 animate-spin rounded-full border-2 border-slate-950 border-t-transparent" /> : '➤'}
           </button>
         </div>
       </form>
-    </div>
+    </main>
   );
 }
 

@@ -68,14 +68,17 @@ function NewChat({ onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-dark-200 rounded-2xl w-full max-w-md mx-4 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md overflow-hidden rounded-[2rem] border border-white/10 bg-dark-200 shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-700">
-          <h2 className="text-lg font-bold text-white">محادثة جديدة</h2>
+        <div className="flex items-center justify-between border-b border-white/10 p-5">
+          <div>
+            <h2 className="text-lg font-black text-white">محادثة جديدة</h2>
+            <p className="mt-1 text-xs text-gray-400">ابحث عن مستخدم وابدأ المحادثة فوراً</p>
+          </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-dark-100 rounded-full transition-colors text-gray-400 hover:text-white"
+            className="grid h-10 w-10 place-items-center rounded-2xl text-gray-400 transition hover:bg-white/10 hover:text-white"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -84,14 +87,14 @@ function NewChat({ onClose }) {
         </div>
 
         {/* Search */}
-        <div className="p-4">
+        <div className="p-5">
           <div className="relative">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="ابحث عن مستخدم..."
-              className="w-full bg-dark-100 border border-gray-700 rounded-xl px-4 py-2 pl-10 text-white focus:border-primary-500 focus:outline-none"
+              className="w-full rounded-2xl border border-white/10 bg-dark-100 px-4 py-3 pl-10 text-white outline-none transition focus:border-cyan-300/70 focus:ring-4 focus:ring-cyan-300/10"
               autoFocus
             />
             <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -102,7 +105,7 @@ function NewChat({ onClose }) {
         </div>
 
         {/* Search Results */}
-        <div className="max-h-80 overflow-y-auto">
+        <div className="max-h-80 overflow-y-auto px-2 pb-2">
           {loading ? (
             <div className="p-4 text-center text-gray-400">
               <svg className="animate-spin h-6 w-6 mx-auto" viewBox="0 0 24 24">
@@ -119,8 +122,8 @@ function NewChat({ onClose }) {
               <div
                 key={user._id}
                 onClick={() => handleSelectUser(user)}
-                className={`p-4 flex items-center gap-3 cursor-pointer hover:bg-dark-100 transition-colors border-b border-gray-800 ${
-                  selectedUser?._id === user._id ? 'bg-dark-100' : ''
+                className={`mb-2 flex cursor-pointer items-center gap-3 rounded-3xl border p-3 transition ${
+                  selectedUser?._id === user._id ? 'border-cyan-300/40 bg-cyan-300/10' : 'border-transparent hover:border-white/10 hover:bg-white/[.04]'
                 }`}
               >
                 <div className="relative">
@@ -128,15 +131,15 @@ function NewChat({ onClose }) {
                     <img
                       src={user.avatar}
                       alt={user.username}
-                      className="w-12 h-12 rounded-full object-cover"
+                      className="h-12 w-12 rounded-2xl object-cover ring-1 ring-white/10"
                     />
                   ) : (
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white font-bold">
+                    <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-cyan-300 to-emerald-300 font-black text-slate-950">
                       {user.username?.charAt(0) || '?'}
                     </div>
                   )}
                   {user.status === 'online' && (
-                    <div className="absolute bottom-0 left-0 w-3 h-3 bg-green-500 rounded-full border-2 border-dark-200"></div>
+                    <div className="absolute -bottom-0.5 -left-0.5 h-4 w-4 rounded-full border-2 border-dark-200 bg-emerald-400"></div>
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -146,7 +149,7 @@ function NewChat({ onClose }) {
                   </p>
                 </div>
                 {selectedUser?._id === user._id && (
-                  <svg className="w-5 h-5 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="h-5 w-5 text-cyan-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 )}
@@ -168,11 +171,11 @@ function NewChat({ onClose }) {
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-gray-700">
+        <div className="border-t border-white/10 p-5">
           <button
             onClick={handleStartChat}
             disabled={!selectedUser || loading}
-            className="w-full bg-primary-500 hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-xl transition-colors"
+            className="w-full rounded-2xl bg-cyan-300 px-6 py-3 font-black text-slate-950 transition hover:bg-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
           >
             ابدأ المحادثة
           </button>
